@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Switcheroo</title>
+    <style>
+        /* CSS Reset */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Import Inter font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@450&display=swap');
+
+        /* Base typography */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 11px;
+            font-style: normal;
+            font-weight: 450;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            background: var(--figma-color-bg);
+            color: var(--figma-color-text);
+            width: 320px;
+            height: 428px;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* Header */
+        .header {
+            padding: 16px 12px;
+            background: var(--figma-color-bg);
+        }
+
+        .header-text {
+            font-weight: 450;
+            font-size: 11px;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            color: var(--figma-color-text);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Main content */
+        .main-content {
+            flex: 1;
+            background: var(--figma-color-bg);
+            overflow-y: auto;
+            padding: 0 12px;
+        }
+
+        .section-row {
+            display: flex;
+            gap: 24px;
+            width: 100%;
+            padding-bottom: 8px;
+        }
+
+        .section-column {
+            flex: 1;
+            width: 50%;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            height: 32px;
+        }
+
+        .section-title {
+            font-weight: 550;
+            font-size: 11px;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            color: var(--figma-color-text-secondary);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .property-item {
+            display: flex;
+            align-items: center;
+            height: 32px;
+            gap: 2px;
+        }
+
+        .property-icon {
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .property-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .property-icon svg path {
+            fill: var(--figma-color-text-secondary);
+        }
+
+        .property-item.disabled .property-icon svg path {
+            fill: var(--figma-color-text-disabled);
+        }
+
+        .property-label {
+            flex: 1;
+            font-weight: 450;
+            font-size: 11px;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            color: var(--figma-color-text);
+            min-width: 0;
+        }
+
+        .property-item.disabled .property-label {
+            color: var(--figma-color-text-disabled);
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+        }
+
+        .checkbox {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            border-radius: var(--figma-radius-medium, 0.3125rem);
+            border: 1px solid var(--figma-color-border);
+            background: var(--figma-color-bg-secondary);
+            position: relative;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            outline: none;
+        }
+
+        .checkbox:focus-visible {
+            border: 1px solid var(--figma-color-border-selected-strong);
+        }
+
+        .checkbox.checked {
+            border: 1px solid var(--figma-color-border-selected-strong);
+            background: var(--figma-color-bg-brand);
+        }
+
+        .checkbox.checked:focus-visible {
+            border: 1px solid var(--figma-color-border-selected-strong);
+            background: var(--figma-color-bg-brand);
+            box-shadow: 0 0 0 1px #FFF inset;
+        }
+
+        .checkbox.checked .checkbox-icon {
+            display: block;
+        }
+
+        .checkbox-icon {
+            display: none;
+            width: 16px;
+            height: 16px;
+        }
+
+        .checkbox-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .checkbox-icon svg path {
+            fill: var(--figma-color-icon-onbrand);
+        }
+
+        .checkbox.disabled {
+            border: 1px solid var(--figma-color-border-disabled);
+            background: var(--figma-color-bg-secondary);
+            cursor: not-allowed;
+        }
+
+        .checkbox.disabled.checked {
+            background: var(--figma-color-bg-disabled);
+        }
+
+        .checkbox.disabled.checked .checkbox-icon svg path {
+            fill: var(--figma-color-icon-ondisabled);
+        }
+
+        .checkbox.disabled:hover {
+            border: 1px solid var(--figma-color-border-disabled);
+        }
+
+        .checkbox.disabled:focus-visible {
+            box-shadow: none;
+        }
+
+        /* Actions */
+        .actions {
+            background: var(--figma-color-bg);
+            border-top: 1px solid var(--figma-color-border);
+            padding: 12px 12px 12px 16px;
+            flex-shrink: 0;
+        }
+
+        .actions-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .switch-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .switch {
+            display: flex;
+            width: 32px;
+            height: 16px;
+            align-items: center;
+            border-radius: var(--figma-radius-full, 9999px);
+            background: var(--figma-color-bg-tertiary);
+            padding: 1px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .switch:focus-visible {
+            border: 1px solid var(--figma-color-border-selected);
+            box-shadow: 0 0 0 1px #FFF inset;
+        }
+
+        .switch-knob {
+            width: 14px;
+            height: 14px;
+            border-radius: var(--figma-radius-large, 0.8125rem);
+            background: var(--figma-color-icon-onbrand);
+            transition: all 0.2s ease;
+        }
+
+        .switch.active {
+            background: var(--figma-color-bg-brand);
+            padding: 1px 1px 1px 17px;
+            justify-content: flex-end;
+        }
+
+        .switch.active:focus-visible {
+            border: 1px solid var(--figma-color-border-selected-strong);
+            background: var(--figma-color-bg-brand);
+            box-shadow: 0 0 0 1px #FFF inset;
+        }
+
+        .switch.disabled {
+            background: var(--figma-color-bg-disabled);
+            cursor: not-allowed;
+        }
+
+        .switch.disabled.active {
+            background: var(--figma-color-bg-tertiary);
+        }
+
+        .switch.disabled .switch-knob {
+            background: var(--figma-color-icon-onbrand);
+        }
+
+        .switch.disabled:focus-visible {
+            box-shadow: none;
+        }
+
+        .switch-label {
+            font-weight: 450;
+            font-size: 11px;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            color: var(--figma-color-text);
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 24px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 450;
+            font-size: 11px;
+            line-height: 16px;
+            letter-spacing: 0.00344rem;
+            cursor: pointer;
+            white-space: nowrap;
+            border: none;
+            transition: all 0.15s;
+            outline: none;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .button:focus-visible {
+            box-shadow: 0 0 0 2px var(--figma-color-border-selected);
+        }
+
+        .button-cancel {
+            background: transparent;
+            border: 1px solid var(--figma-color-border);
+            color: var(--figma-color-text);
+        }
+
+        .button-cancel:hover {
+            background: var(--figma-color-bg-hover);
+        }
+
+        .button-cancel:active {
+            background: var(--figma-color-bg-pressed);
+        }
+
+        .button-primary {
+            background: var(--figma-color-bg-brand);
+            color: var(--figma-color-text-onbrand);
+        }
+
+        .button-primary:hover {
+            background: var(--figma-color-bg-brand-hover);
+        }
+
+        .button-primary:active {
+            background: var(--figma-color-bg-brand-pressed);
+        }
+
+        /* Scrollbar styling */
+        .main-content::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        .main-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .main-content::-webkit-scrollbar-thumb {
+            background-color: var(--figma-color-border);
+            border-radius: 6px;
+            border: 3px solid var(--figma-color-bg);
+        }
+
+        .main-content::-webkit-scrollbar-thumb:hover {
+            background-color: var(--figma-color-text-tertiary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-text">
+                Choose below which properties you want to swap between selected layers
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="section-row">
+                <div class="section-column">
+                    <div class="section-header">
+                        <div class="section-title">Position</div>
+                    </div>
+                    
+                    <div class="property-item" data-property="xPosition">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M16.5 8.49988C16.7761 8.49988 17 8.72374 17 8.99988V13.9999C17 14.276 16.7761 14.4999 16.5 14.4999C16.2239 14.4999 16 14.276 16 13.9999V11.9999H7V13.9999C7 14.276 6.77614 14.4999 6.5 14.4999C6.22386 14.4999 6 14.276 6 13.9999V8.99988C6 8.72374 6.22386 8.49988 6.5 8.49988C6.77614 8.49988 7 8.72374 7 8.99988V10.9999H16V8.99988C16 8.72374 16.2239 8.49988 16.5 8.49988Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">X-position</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="xPosition">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="yPosition">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M14 6.00024C14.2761 6.00024 14.5 6.2241 14.5 6.50024C14.5 6.77639 14.2761 7.00024 14 7.00024H12V16.0002H14C14.2761 16.0002 14.5 16.2241 14.5 16.5002C14.5 16.7764 14.2761 17.0002 14 17.0002H9C8.72386 17.0002 8.5 16.7764 8.5 16.5002C8.5 16.2241 8.72386 16.0002 9 16.0002H11V7.00024H9C8.72386 7.00024 8.5 6.77639 8.5 6.50024C8.5 6.2241 8.72386 6.00024 9 6.00024H14Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Y-position</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="yPosition">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="rotation">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M15.5 15C15.7761 15 16 15.2239 16 15.5C16 15.7761 15.7761 16 15.5 16H8.5C8.22386 16 8 15.7761 8 15.5V8.5C8 8.22386 8.22386 8 8.5 8C8.77614 8 9 8.22386 9 8.5V11C11.2091 11 13 12.7909 13 15H15.5ZM12 15C12 13.3431 10.6569 12 9 12V15H12Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Rotation</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="rotation">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-column">
+                    <div class="section-header">
+                        <div class="section-title">Layout</div>
+                    </div>
+
+                    <div class="property-item" data-property="constraints">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M15 18C15.2761 18 15.5 18.2239 15.5 18.5C15.5 18.7761 15.2761 19 15 19H9C8.72386 19 8.5 18.7761 8.5 18.5C8.5 18.2239 8.72386 18 9 18H15Z"/>
+                                <path d="M5.5 8.5C5.77614 8.5 6 8.72386 6 9V15C6 15.2761 5.77614 15.5 5.5 15.5C5.22386 15.5 5 15.2761 5 15V9C5 8.72386 5.22386 8.5 5.5 8.5Z"/>
+                                <path d="M12 8.5C12.2761 8.5 12.5 8.72386 12.5 9V11.5H15C15.2761 11.5 15.5 11.7239 15.5 12C15.5 12.2761 15.2761 12.5 15 12.5H12.5V15C12.5 15.2761 12.2761 15.5 12 15.5C11.7239 15.5 11.5 15.2761 11.5 15V12.5H9C8.72386 12.5 8.5 12.2761 8.5 12C8.5 11.7239 8.72386 11.5 9 11.5H11.5V9C11.5 8.72386 11.7239 8.5 12 8.5Z"/>
+                                <path d="M18.5 8.5C18.7761 8.5 19 8.72386 19 9V15C19 15.2761 18.7761 15.5 18.5 15.5C18.2239 15.5 18 15.2761 18 15V9C18 8.72386 18.2239 8.5 18.5 8.5Z"/>
+                                <path d="M15 5C15.2761 5 15.5 5.22386 15.5 5.5C15.5 5.77614 15.2761 6 15 6H9C8.72386 6 8.5 5.77614 8.5 5.5C8.5 5.22386 8.72386 5 9 5H15Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Constraints</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="constraints">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="ignoreLayout">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M6.5 14C6.77614 14 7 14.2239 7 14.5V17H9.5C9.77614 17 10 17.2239 10 17.5C10 17.7761 9.77614 18 9.5 18H7C6.44772 18 6 17.5523 6 17V14.5C6 14.2239 6.22386 14 6.5 14ZM17.5 14C17.7761 14 18 14.2239 18 14.5V17C18 17.5523 17.5523 18 17 18H14.5C14.2239 18 14 17.7761 14 17.5C14 17.2239 14.2239 17 14.5 17H17V14.5C17 14.2239 17.2239 14 17.5 14ZM14.1025 9.00488C14.6066 9.05624 15 9.48234 15 10V14L14.9951 14.1025C14.9472 14.5729 14.5729 14.9472 14.1025 14.9951L14 15H10C9.48233 15 9.05622 14.6067 9.00488 14.1025L9 14V10C9 9.44772 9.44772 9 10 9H14L14.1025 9.00488ZM10 14H14V10H10V14ZM9.5 6C9.77614 6 10 6.22386 10 6.5C10 6.77614 9.77614 7 9.5 7H7V9.5C7 9.77614 6.77614 10 6.5 10C6.22386 10 6 9.77614 6 9.5V7C6 6.44772 6.44772 6 7 6H9.5ZM17 6C17.5523 6 18 6.44772 18 7V9.5C18 9.77614 17.7761 10 17.5 10C17.2239 10 17 9.77614 17 9.5V7H14.5C14.2239 7 14 6.77614 14 6.5C14 6.22386 14.2239 6 14.5 6H17Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Ignore layout</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="ignoreLayout">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="layoutGrid">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M16.5 6C16.7761 6 17 6.22386 17 6.5V7H17.5C17.7761 7 18 7.22386 18 7.5C18 7.77614 17.7761 8 17.5 8H17V11.5H17.5C17.7761 11.5 18 11.7239 18 12C18 12.2761 17.7761 12.5 17.5 12.5H17V16H17.5C17.7761 16 18 16.2239 18 16.5C18 16.7761 17.7761 17 17.5 17H17V17.5C17 17.7761 16.7761 18 16.5 18C16.2239 18 16 17.7761 16 17.5V17H12.5V17.5C12.5 17.7761 12.2761 18 12 18C11.7239 18 11.5 17.7761 11.5 17.5V17H8V17.5C8 17.7761 7.77614 18 7.5 18C7.22386 18 7 17.7761 7 17.5V17H6.5C6.22386 17 6 16.7761 6 16.5C6 16.2239 6.22386 16 6.5 16H7V12.5H6.5C6.22386 12.5 6 12.2761 6 12C6 11.7239 6.22386 11.5 6.5 11.5H7V8H6.5C6.22386 8 6 7.77614 6 7.5C6 7.22386 6.22386 7 6.5 7H7V6.5C7 6.22386 7.22386 6 7.5 6C7.77614 6 8 6.22386 8 6.5V7H11.5V6.5C11.5 6.22386 11.7239 6 12 6C12.2761 6 12.5 6.22386 12.5 6.5V7H16V6.5C16 6.22386 16.2239 6 16.5 6ZM8 16H11.5V12.5H8V16ZM12.5 16H16V12.5H12.5V16ZM8 11.5H11.5V8H8V11.5ZM12.5 11.5H16V8H12.5V11.5Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Layout guide</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="layoutGrid">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-row">
+                <div class="section-column">
+                    <div class="section-header">
+                        <div class="section-title">Appearance</div>
+                    </div>
+
+                    <div class="property-item" data-property="opacity">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M9 14.5C9.27614 14.5 9.5 14.7239 9.5 15C9.5 15.2761 9.27614 15.5 9 15.5C8.72386 15.5 8.5 15.2761 8.5 15C8.5 14.7239 8.72386 14.5 9 14.5Z"/>
+                                <path d="M11 14.5C11.2761 14.5 11.5 14.7239 11.5 15C11.5 15.2761 11.2761 15.5 11 15.5C10.7239 15.5 10.5 15.2761 10.5 15C10.5 14.7239 10.7239 14.5 11 14.5Z"/>
+                                <path d="M13 14.5C13.2761 14.5 13.5 14.7239 13.5 15C13.5 15.2761 13.2761 15.5 13 15.5C12.7239 15.5 12.5 15.2761 12.5 15C12.5 14.7239 12.7239 14.5 13 14.5Z"/>
+                                <path d="M15 14.5C15.2761 14.5 15.5 14.7239 15.5 15C15.5 15.2761 15.2761 15.5 15 15.5C14.7239 15.5 14.5 15.2761 14.5 15C14.5 14.7239 14.7239 14.5 15 14.5Z"/>
+                                <path d="M11 12.5C11.2761 12.5 11.5 12.7239 11.5 13C11.5 13.2761 11.2761 13.5 11 13.5C10.7239 13.5 10.5 13.2761 10.5 13C10.5 12.7239 10.7239 12.5 11 12.5Z"/>
+                                <path d="M13 12.5C13.2761 12.5 13.5 12.7239 13.5 13C13.5 13.2761 13.2761 13.5 13 13.5C12.7239 13.5 12.5 13.2761 12.5 13C12.5 12.7239 12.7239 12.5 13 12.5Z"/>
+                                <path d="M15 12.5C15.2761 12.5 15.5 12.7239 15.5 13C15.5 13.2761 15.2761 13.5 15 13.5C14.7239 13.5 14.5 13.2761 14.5 13C14.5 12.7239 14.7239 12.5 15 12.5Z"/>
+                                <path d="M13 10.5C13.2761 10.5 13.5 10.7239 13.5 11C13.5 11.2761 13.2761 11.5 13 11.5C12.7239 11.5 12.5 11.2761 12.5 11C12.5 10.7239 12.7239 10.5 13 10.5Z"/>
+                                <path d="M15 10.5C15.2761 10.5 15.5 10.7239 15.5 11C15.5 11.2761 15.2761 11.5 15 11.5C14.7239 11.5 14.5 11.2761 14.5 11C14.5 10.7239 14.7239 10.5 15 10.5Z"/>
+                                <path d="M15 8.5C15.2761 8.5 15.5 8.72386 15.5 9C15.5 9.27614 15.2761 9.5 15 9.5C14.7239 9.5 14.5 9.27614 14.5 9C14.5 8.72386 14.7239 8.5 15 8.5Z"/>
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M16.2041 6.01074C17.2128 6.113 18 6.96435 18 8V16L17.9893 16.2041C17.8938 17.1457 17.1457 17.8938 16.2041 17.9893L16 18H8C6.96435 18 6.113 17.2128 6.01074 16.2041L6 16V8C6 6.89543 6.89543 6 8 6H16L16.2041 6.01074ZM8 7C7.48232 7 7.05621 7.39333 7.00488 7.89746L7 8V16C7 16.5523 7.44772 17 8 17H16C16.5523 17 17 16.5523 17 16V8C17 7.48232 16.6067 7.05621 16.1025 7.00488L16 7H8Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Opacity</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="opacity">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="variableMode">
+                        <div class="property-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                <path d="M18 15C18 13.8954 17.1046 13 16 13H15.2529L11.6572 16.5967C11.5603 16.6936 11.4561 16.7802 11.3496 16.8613C11.3118 16.909 11.272 16.9548 11.2314 17H16C17.1046 17 18 16.1046 18 15ZM15.8994 8.11133C15.1184 7.3303 13.8523 7.33029 13.0713 8.11133L12 9.18262V14.8389L15.8994 10.9395C16.6805 10.1584 16.6805 8.89238 15.8994 8.11133ZM19 15C19 16.6569 17.6569 18 16 18H9C7.34315 18 6 16.6569 6 15V8C6 6.34315 7.34315 5 9 5C10.5819 5 11.8763 6.22452 11.9902 7.77734L12.3643 7.4043C13.5358 6.23272 15.4358 6.23272 16.6074 7.4043C17.7784 8.57583 17.7786 10.4751 16.6074 11.6465L16.2422 12.0098C17.7858 12.1331 19 13.4247 19 15ZM7 15C7 16.1046 7.89543 17 9 17C10.1046 17 11 16.1046 11 15V8C11 6.89543 10.1046 6 9 6C7.89543 6 7 6.89543 7 8V15Z"/>
+                                <path d="M10 15C10 15.5523 9.55228 16 9 16C8.44772 16 8 15.5523 8 15C8 14.4477 8.44772 14 9 14C9.55228 14 10 14.4477 10 15Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Variable mode</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="variableMode">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="blendMode">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M11.251 5.99924C11.6246 5.47861 12.3754 5.47861 12.749 5.99924C13.907 7.61275 16 10.83 16 13.0002C15.9998 15.2092 14.209 17.0002 12 17.0002C9.79098 17.0002 8.00019 15.2092 8 13.0002C8 10.83 10.093 7.61275 11.251 5.99924ZM12 6.67306C11.4405 7.45828 10.6908 8.58106 10.0771 9.75412C9.41971 11.011 9 12.1738 9 13.0002C9.00019 14.6569 10.3433 16.0002 12 16.0002C13.6567 16.0002 14.9998 14.6569 15 13.0002C15 12.1738 14.5803 11.011 13.9229 9.75412C13.3092 8.58106 12.5595 7.45828 12 6.67306Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Blend mode</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="blendMode">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="cornerRadius">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M6.5 14C6.77614 14 7 14.2239 7 14.5V15.0996C7 15.5279 7.00017 15.8199 7.01855 16.0449C7.03647 16.2639 7.06956 16.376 7.10938 16.4541C7.20521 16.6421 7.35793 16.7948 7.5459 16.8906C7.62405 16.9304 7.73615 16.9635 7.95508 16.9814C8.18012 16.9998 8.4721 17 8.90039 17H9.5C9.77614 17 10 17.2239 10 17.5C10 17.7761 9.77614 18 9.5 18H8.90039C8.4886 18 8.14924 18 7.87402 17.9775C7.59301 17.9546 7.33444 17.9059 7.0918 17.7822C6.71554 17.5905 6.40951 17.2845 6.21777 16.9082C6.09414 16.6656 6.04543 16.407 6.02246 16.126C5.99998 15.8508 6 15.5114 6 15.0996V14.5C6 14.2239 6.22386 14 6.5 14Z"/>
+                                <path d="M17.5 14C17.7761 14 18 14.2239 18 14.5V15.0996C18 15.5114 18 15.8508 17.9775 16.126C17.9546 16.407 17.9059 16.6656 17.7822 16.9082C17.5905 17.2845 17.2845 17.5905 16.9082 17.7822C16.6656 17.9059 16.407 17.9546 16.126 17.9775C15.8508 18 15.5114 18 15.0996 18H14.5C14.2239 18 14 17.7761 14 17.5C14 17.2239 14.2239 17 14.5 17H15.0996C15.5279 17 15.8199 16.9998 16.0449 16.9814C16.2639 16.9635 16.376 16.9304 16.4541 16.8906C16.6421 16.7948 16.7948 16.6421 16.8906 16.4541C16.9304 16.376 16.9635 16.2639 16.9814 16.0449C16.9998 15.8199 17 15.5279 17 15.0996V14.5C17 14.2239 17.2239 14 17.5 14Z"/>
+                                <path d="M9.5 6C9.77614 6 10 6.22386 10 6.5C10 6.77614 9.77614 7 9.5 7H8.90039C8.47217 7 8.1801 7.00017 7.95508 7.01855C7.73623 7.03647 7.62403 7.06956 7.5459 7.10938C7.35797 7.20522 7.2052 7.35796 7.10938 7.5459C7.06957 7.62405 7.03647 7.73619 7.01855 7.95508C7.00017 8.18012 7 8.47211 7 8.90039V9.5C7 9.77614 6.77614 10 6.5 10C6.22391 9.99993 6 9.7761 6 9.5V8.90039C6 8.48861 5.99998 8.14923 6.02246 7.87402C6.04543 7.59303 6.09416 7.33442 6.21777 7.0918C6.40949 6.71558 6.71559 6.40951 7.0918 6.21777C7.3344 6.09416 7.59306 6.04543 7.87402 6.02246C8.14921 5.99998 8.48866 6 8.90039 6H9.5Z"/>
+                                <path d="M15.0996 6C15.5114 6 15.8508 5.99998 16.126 6.02246C16.407 6.04543 16.6656 6.09414 16.9082 6.21777C17.2845 6.40951 17.5905 6.71554 17.7822 7.0918C17.9059 7.33444 17.9546 7.59301 17.9775 7.87402C18 8.14924 18 8.4886 18 8.90039V9.5C18 9.77614 17.7761 10 17.5 10C17.2239 10 17 9.77614 17 9.5V8.90039C17 8.4721 16.9998 8.18012 16.9814 7.95508C16.9635 7.73615 16.9304 7.62405 16.8906 7.5459C16.7948 7.35793 16.6421 7.20521 16.4541 7.10938C16.376 7.06956 16.2639 7.03647 16.0449 7.01855C15.8199 7.00017 15.5279 7 15.0996 7H14.5C14.2239 7 14 6.77614 14 6.5C14 6.22386 14.2239 6 14.5 6H15.0996Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Corner radius</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="cornerRadius">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-column">
+                    <div class="section-header">
+                        <div class="section-title">Properties</div>
+                    </div>
+
+                    <div class="property-item" data-property="fill">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M15.25 8C15.6642 8 16 8.33579 16 8.75V15.25C16 15.6642 15.6642 16 15.25 16H8.75C8.33579 16 8 15.6642 8 15.25V8.75C8 8.33579 8.33579 8 8.75 8H15.25ZM9 15H15V9H9V15Z"/>
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M16.2041 6.01074C17.2128 6.113 18 6.96435 18 8V16L17.9893 16.2041C17.8938 17.1457 17.1457 17.8938 16.2041 17.9893L16 18H8C6.96435 18 6.113 17.2128 6.01074 16.2041L6 16V8C6 6.89543 6.89543 6 8 6H16L16.2041 6.01074ZM8 7C7.48232 7 7.05621 7.39333 7.00488 7.89746L7 8V16C7 16.5523 7.44772 17 8 17H16C16.5523 17 17 16.5523 17 16V8C17 7.48232 16.6067 7.05621 16.1025 7.00488L16 7H8Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Fill</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="fill">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="stroke">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M17.25 14C17.6642 14 18 14.3358 18 14.75V17.25C18 17.6642 17.6642 18 17.25 18H6.75C6.33579 18 6 17.6642 6 17.25V14.75C6 14.3358 6.33579 14 6.75 14H17.25ZM7 17H17V15H7V17Z"/>
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M17.25 9C17.6642 9 18 9.33579 18 9.75V11.25C18 11.6642 17.6642 12 17.25 12H6.75C6.33579 12 6 11.6642 6 11.25V9.75C6 9.33579 6.33579 9 6.75 9H17.25ZM7 11H17V10H7V11Z"/>
+                                <path d="M17.5 6C17.7761 6 18 6.22386 18 6.5C18 6.77614 17.7761 7 17.5 7H6.5C6.22386 7 6 6.77614 6 6.5C6 6.22386 6.22386 6 6.5 6H17.5Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Stroke</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="stroke">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="effect">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M17 5C18.1046 5 19 5.89543 19 7V17C19 18.1046 18.1046 19 17 19H7C5.89543 19 5 18.1046 5 17V7C5 5.89543 5.89543 5 7 5H17ZM7 6C6.44772 6 6 6.44772 6 7V17C6 17.5523 6.44772 18 7 18H17C17.5523 18 18 17.5523 18 17V7C18 6.44772 17.5523 6 17 6H7Z"/>
+                                <path opacity="0.3" d="M17 6C17.5523 6 18 6.44772 18 7V10C18 9.44772 17.5523 9 17 9H7C6.44772 9 6 9.44772 6 10V7C6 6.44772 6.44772 6 7 6H17Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Effect</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="effect">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="property-item" data-property="export">
+                        <div class="property-icon">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M17.5 15C17.7761 15 18 15.2239 18 15.5V16.5C18 17.3284 17.3284 18 16.5 18H7.5C6.67157 18 6 17.3284 6 16.5V15.5C6 15.2239 6.22386 15 6.5 15C6.77614 15 7 15.2239 7 15.5V16.5C7 16.7761 7.22386 17 7.5 17H16.5C16.7761 17 17 16.7761 17 16.5V15.5C17 15.2239 17.2239 15 17.5 15Z"/>
+                                <path d="M12 5C12.2761 5 12.5 5.22386 12.5 5.5V12.293L14.6465 10.1465C14.8417 9.95122 15.1583 9.95122 15.3535 10.1465C15.5488 10.3417 15.5488 10.6583 15.3535 10.8535L12.3535 13.8535C12.1583 14.0488 11.8417 14.0488 11.6465 13.8535L8.64648 10.8535C8.45122 10.6583 8.45122 10.3417 8.64648 10.1465C8.84175 9.95122 9.15825 9.95122 9.35352 10.1465L11.5 12.293V5.5C11.5 5.22386 11.7239 5 12 5Z"/>
+                            </svg>
+                        </div>
+                        <div class="property-label">Export</div>
+                        <div class="checkbox-container">
+                            <div class="checkbox" data-property="export">
+                                <div class="checkbox-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.0839 4.22268C11.2371 3.99294 11.5475 3.93087 11.7773 4.08401C12.007 4.23718 12.0691 4.5476 11.916 4.77737L7.91596 10.7774C7.83287 10.902 7.69784 10.9833 7.54877 10.9981C7.39988 11.0127 7.25223 10.9593 7.14643 10.8535L4.14643 7.85354C3.9512 7.65827 3.95118 7.34176 4.14643 7.14651C4.34168 6.95126 4.6582 6.95128 4.85346 7.14651L7.42182 9.71487L11.0839 4.22268Z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <div class="actions-content">
+                <div class="switch-container">
+                    <div class="switch" id="swapInLayersToggle" tabindex="0">
+                        <div class="switch-knob"></div>
+                    </div>
+                    <div class="switch-label">Swap in Layers</div>
+                </div>
+                
+                <div class="button-group">
+                    <button class="button button-cancel" id="cancelButton">Cancel</button>
+                    <button class="button button-primary" id="switchButton">Switch</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State management
+        let currentSupport = {};
+        let swapInLayersEnabled = false;
+
+        // Initialize UI
+        function initializeUI() {
+            setupEventListeners();
+            requestSupportUpdate();
+        }
+
+        function setupEventListeners() {
+            // Checkbox clicks
+            document.querySelectorAll('.checkbox:not(.disabled)').forEach(checkbox => {
+                checkbox.addEventListener('click', function() {
+                    const property = this.getAttribute('data-property');
+                    if (currentSupport[property] !== false) {
+                        this.classList.toggle('checked');
+                    }
+                });
+                
+                // Make checkbox focusable
+                checkbox.setAttribute('tabindex', '0');
+                
+                // Handle keyboard events
+                checkbox.addEventListener('keydown', function(e) {
+                    if (e.key === 'Space' || e.key === ' ') {
+                        e.preventDefault();
+                        const property = this.getAttribute('data-property');
+                        if (currentSupport[property] !== false) {
+                            this.classList.toggle('checked');
+                        }
+                    }
+                });
+            });
+
+            // Switch toggle
+            const switchToggle = document.getElementById('swapInLayersToggle');
+            switchToggle.addEventListener('click', function() {
+                swapInLayersEnabled = !swapInLayersEnabled;
+                this.classList.toggle('active', swapInLayersEnabled);
+            });
+            
+            // Handle keyboard events for switch
+            switchToggle.addEventListener('keydown', function(e) {
+                if (e.key === 'Space' || e.key === ' ') {
+                    e.preventDefault();
+                    swapInLayersEnabled = !swapInLayersEnabled;
+                    this.classList.toggle('active', swapInLayersEnabled);
+                }
+            });
+
+            // Buttons
+            document.getElementById('cancelButton').addEventListener('click', function() {
+                parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+            });
+
+            document.getElementById('switchButton').addEventListener('click', function() {
+                executeSwap();
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    executeSwap();
+                } else if (e.key === 'Escape') {
+                    parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+                }
+            });
+        }
+
+        function requestSupportUpdate() {
+            parent.postMessage({ pluginMessage: { type: 'get-support' } }, '*');
+        }
+
+        function updateSupport(support) {
+            currentSupport = support;
+            
+            // Update all property items
+            document.querySelectorAll('.property-item').forEach(item => {
+                const property = item.getAttribute('data-property');
+                const checkbox = item.querySelector('.checkbox');
+                const isSupported = support[property] === true;
+                
+                // Skip permanently disabled items
+                if (property === 'ignoreLayout' || property === 'stroke') {
+                    return;
+                }
+                
+                if (isSupported) {
+                    item.classList.remove('disabled');
+                    checkbox.classList.remove('disabled');
+                    checkbox.setAttribute('tabindex', '0');
+                } else {
+                    item.classList.add('disabled');
+                    checkbox.classList.add('disabled');
+                    checkbox.classList.remove('checked');
+                    checkbox.removeAttribute('tabindex');
+                }
+            });
+        }
+
+        function getSwapFlags() {
+            const flags = {
+                xPosition: false,
+                yPosition: false,
+                rotation: false,
+                constraints: false,
+                absolutePosition: false,
+                layoutGrid: false,
+                opacity: false,
+                variableMode: false,
+                blendMode: false,
+                cornerRadius: false,
+                fill: false,
+                stroke: false,
+                effect: false,
+                export: false,
+                swapInLayersPanel: swapInLayersEnabled
+            };
+
+            // Check each checkbox
+            document.querySelectorAll('.checkbox.checked:not(.disabled)').forEach(checkbox => {
+                const property = checkbox.getAttribute('data-property');
+                if (flags.hasOwnProperty(property)) {
+                    flags[property] = true;
+                }
+            });
+
+            return flags;
+        }
+
+        function executeSwap() {
+            const flags = getSwapFlags();
+            parent.postMessage({ 
+                pluginMessage: { 
+                    type: 'swap', 
+                    flags: flags 
+                } 
+            }, '*');
+        }
+
+        // Message handling
+        window.onmessage = (event) => {
+            const msg = event.data.pluginMessage;
+            if (msg && msg.type === 'support-update') {
+                updateSupport(msg.support);
+            }
+        };
+
+        // Initialize when loaded
+        initializeUI();
+    </script>
+</body>
+</html>

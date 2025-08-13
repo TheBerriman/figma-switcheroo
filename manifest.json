@@ -1,0 +1,26 @@
+{
+  "name": "Switcheroo",
+  "id": "1535515452609381389",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "editorType": ["figma"],
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  },
+  "menu": [
+    { "name": "Switch Layers", "command": "Switch Layers", "parameters": [
+      { "name": "Choose what to swap", "key": "mode", "description": "(default) | canvas position | layers panel", "optional": true }
+    ]},
+    { "name": "Switch Properties", "command": "Switch Properties", "parameters": [
+      { "name": "Choose a property to swap", "key": "property", "description": "(All) | Opacity | Variable mode | Blend mode | Corner radius | Fill | Stroke | Effect | Layout grid | Export", "optional": true }
+    ]},
+    { "separator": true },
+    { "name": "Switch…", "command": "Switch…" }
+  ]
+}
