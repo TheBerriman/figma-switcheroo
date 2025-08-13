@@ -1,467 +1,408 @@
-// Switcheroo — Figma/FigJam/Slides plugin
-// Commands:
-// 1) "Switch Layers"        — headless. Param: mode = "(default)" | "canvas position" | "layers panel"
-// 2) "Switch Properties"    — headless. Param: property = "(All) | Opacity | Variable mode | Blend mode | Corner radius | Fill | Stroke | Effect | Layout grid | Export"
-// 3) "Switch…"              — opens UI with checkboxes, live selection-aware
+// code.ts — Switcheroo (fixed)
 
-type SwapLayersParam = "(default)" | "canvas position" | "layers panel";
-type PropToken =
-  | "(All)" | "Opacity" | "Variable mode" | "Blend mode"
-  | "Corner radius" | "Fill" | "Stroke" | "Effect" | "Layout grid" | "Export";
+// Use Figma's Transform type for matrix ops
+type T2 = Transform;
 
-const LAYERS_PARAM_SUGGESTIONS: SwapLayersParam[] = ["(default)", "canvas position", "layers panel"];
-const PROPS_PARAM_SUGGESTIONS: PropToken[] = ["(All)", "Opacity", "Variable mode", "Blend mode", "Corner radius", "Fill", "Stroke", "Effect", "Layout grid", "Export"];
+// Helpers
+const IDENTITY: T2 = [[1, 0, 0], [0, 1, 0]];
 
-function notifyExit(msg: string) { figma.notify(msg); figma.closePlugin(); }
+const toKey = (s: string) => s.trim().toLowerCase();
 
-// --- Type guards / helpers ----------------------------------------------------
-
-function hasChildren(n: BaseNode | null): n is (BaseNode & ChildrenMixin) {
-  return !!n && 'insertChild' in n;
+function requireTwo(): [SceneNode, SceneNode] | undefined {
+  const sel = figma.currentPage.selection.filter(
+    (n): n is SceneNode => (n as any).visible !== undefined
+  );
+  return sel.length === 2 ? [sel[0], sel[1]] : undefined;
 }
 
-function isALContainer(n: BaseNode | null): n is (FrameNode | ComponentNode) {
-  if (!n) return false;
-  if (n.type === 'FRAME' || n.type === 'COMPONENT') {
-    return (n as FrameNode | ComponentNode).layoutMode !== 'NONE';
-  }
-  return false;
+function invert(m: T2): T2 {
+  const a = m[0][0], b = m[0][1], c = m[0][2];
+  const d = m[1][0], e = m[1][1], f = m[1][2];
+  const det = a * e - b * d;
+  if (det === 0) return IDENTITY;
+  const invA = e / det, invB = -b / det, invD = -d / det, invE = a / det;
+  const invC = -(invA * c + invB * f), invF = -(invD * c + invE * f);
+  return [[invA, invB, invC], [invD, invE, invF]];
 }
 
-function nonALFrame(n: BaseNode | null): n is FrameNode {
-  return !!n && n.type === 'FRAME' && (n as FrameNode).layoutMode === 'NONE';
+function mul(A: T2, B: T2): T2 {
+  const a = A[0][0] * B[0][0] + A[0][1] * B[1][0];
+  const b = A[0][0] * B[0][1] + A[0][1] * B[1][1];
+  const c = A[0][0] * B[0][2] + A[0][1] * B[1][2] + A[0][2];
+  const d = A[1][0] * B[0][0] + A[1][1] * B[1][0];
+  const e = A[1][0] * B[0][1] + A[1][1] * B[1][1];
+  const f = A[1][0] * B[0][2] + A[1][1] * B[1][2] + A[1][2];
+  return [[a, b, c], [d, e, f]];
 }
 
-function isAncestor(anc: BaseNode, desc: BaseNode): boolean {
-  let p = desc.parent;
-  while (p) { if (p.id === anc.id) return true; p = p.parent; }
-  return false;
+function parentAbsTransform(parent: BaseNode & ChildrenMixin | null): T2 {
+  if (!parent) return IDENTITY;
+  // PageNode does NOT have absoluteTransform. Use identity in that case.
+  if ((parent as any).type === "PAGE") return IDENTITY;
+  // All other parents are SceneNode and have absoluteTransform.
+  return (parent as SceneNode).absoluteTransform;
 }
 
-function canReceive(parent: BaseNode & ChildrenMixin, child: SceneNode): boolean {
-  if (parent.type === 'INSTANCE') return false;
-  if (parent.type === 'COMPONENT_SET' && child.type !== 'COMPONENT') return false;
-  return true;
+function toParentSpace(abs: T2, parent: BaseNode & ChildrenMixin | null): T2 {
+  const pAbs = parentAbsTransform(parent);
+  return mul(invert(pAbs), abs);
 }
 
-function indexInParent(node: SceneNode): number {
-  const p = node.parent as (BaseNode & ChildrenMixin);
-  return p.children.indexOf(node);
-}
-
-function swapIndicesInSameParent(parent: BaseNode & ChildrenMixin, a: SceneNode, b: SceneNode) {
-  const ai = parent.children.indexOf(a);
-  const bi = parent.children.indexOf(b);
-  if (ai < 0 || bi < 0) return false;
-  if (ai < bi) { parent.insertChild(ai, b); parent.insertChild(bi, a); }
-  else if (bi < ai) { parent.insertChild(bi, a); parent.insertChild(ai, b); }
-  return true;
-}
-
-// --- Core swap primitives -----------------------------------------------------
-
-function swapRelativeTransform(a: SceneNode, b: SceneNode) {
-  const aRel = (a as any).relativeTransform as Transform;
-  const bRel = (b as any).relativeTransform as Transform;
-  (a as any).relativeTransform = bRel;
-  (b as any).relativeTransform = aRel;
-}
-
-function swapParentAndIndex(a: SceneNode, b: SceneNode): boolean {
-  const aParent = a.parent; const bParent = b.parent;
-  if (!aParent || !bParent) return false;
-  if (!hasChildren(aParent) || !hasChildren(bParent)) return false;
-
-  // prevent cycles
-  if (isAncestor(a, b) || isAncestor(b, a)) return false;
-
-  // same parent fast path
-  if (aParent.id === bParent.id) return swapIndicesInSameParent(aParent, a, b) || false;
-
-  // cross-parent validations
-  if (!canReceive(bParent, a) || !canReceive(aParent, b)) return false;
-
-  const ai = indexInParent(a);
-  const bi = indexInParent(b);
-
-  bParent.insertChild(bi, a);
-  aParent.insertChild(ai, b);
-  return true;
-}
-
-function swapConstraintsIfApplicable(a: SceneNode, aDestParent: BaseNode | null, b: SceneNode, bDestParent: BaseNode | null): boolean {
-  if (!(nonALFrame(aDestParent) && nonALFrame(bDestParent))) return false;
-  if (!('constraints' in (a as any)) || !('constraints' in (b as any))) return false;
-  const aCons = (a as any).constraints; const bCons = (b as any).constraints;
-  (a as any).constraints = bCons; (b as any).constraints = aCons;
-  return true;
-}
-
-function swapLayoutPositioningIfApplicable(a: SceneNode, b: SceneNode): boolean {
-  const aP = a.parent; const bP = b.parent;
-  if (!(isALContainer(aP) && isALContainer(bP))) return false;
-  if ((a as any).layoutPositioning === undefined || (b as any).layoutPositioning === undefined) return false;
-  const t = (a as any).layoutPositioning;
-  (a as any).layoutPositioning = (b as any).layoutPositioning;
-  (b as any).layoutPositioning = t;
-  return true;
-}
-
-// --- Property swaps (for "Switch Properties" and UI) --------------------------
-
-function swapOpacity(a: SceneNode, b: SceneNode): boolean {
-  if (!('opacity' in (a as any)) || !('opacity' in (b as any))) return false;
-  const t = (a as any).opacity; (a as any).opacity = (b as any).opacity; (b as any).opacity = t; return true;
-}
-
-function swapBlendMode(a: SceneNode, b: SceneNode): boolean {
-  if (!('blendMode' in (a as any)) || !('blendMode' in (b as any))) return false;
-  const t = (a as any).blendMode; (a as any).blendMode = (b as any).blendMode; (b as any).blendMode = t; return true;
-}
-
-function swapCornerRadius(a: SceneNode, b: SceneNode): boolean {
-  let touched = false;
-  const keys = ['cornerRadius','cornerSmoothing','topLeftRadius','topRightRadius','bottomRightRadius','bottomLeftRadius'] as const;
-  for (const k of keys) {
-    if (k in (a as any) && k in (b as any)) { const t = (a as any)[k]; (a as any)[k] = (b as any)[k]; (b as any)[k] = t; touched = true; }
-  }
-  return touched;
-}
-
-function swapFills(a: SceneNode, b: SceneNode): boolean {
-  if (!('fills' in (a as any)) || !('fills' in (b as any))) return false;
-  const t = (a as any).fills; (a as any).fills = (b as any).fills; (b as any).fills = t; return true;
-}
-
-function swapStrokes(a: SceneNode, b: SceneNode): boolean {
-  let ok = true;
-  const keys = ['strokes','strokeWeight','strokeAlign','strokeCap','strokeJoin','dashPattern'] as const;
-  for (const k of keys) {
-    if (!((k in (a as any)) && (k in (b as any)))) ok = false;
-  }
-  if (!ok) return false;
-  for (const k of keys) { const t = (a as any)[k]; (a as any)[k] = (b as any)[k]; (b as any)[k] = t; }
-  return true;
-}
-
-function swapEffects(a: SceneNode, b: SceneNode): boolean {
-  if (!('effects' in (a as any)) || !('effects' in (b as any))) return false;
-  const t = (a as any).effects; (a as any).effects = (b as any).effects; (b as any).effects = t;
-  if ('effectStyleId' in (a as any) && 'effectStyleId' in (b as any)) {
-    const s = (a as any).effectStyleId; (a as any).effectStyleId = (b as any).effectStyleId; (b as any).effectStyleId = s;
+function canSetRelativeTransform(n: SceneNode): boolean {
+  const parent = n.parent as any;
+  if (
+    "layoutPositioning" in n &&
+    n.layoutPositioning === "AUTO" &&
+    parent &&
+    "layoutMode" in parent &&
+    parent.layoutMode !== "NONE"
+  ) {
+    return false; // AUTO child in autolayout ignores x/y
   }
   return true;
 }
 
-function swapLayoutGrids(a: SceneNode, b: SceneNode): boolean {
-  if (!('layoutGrids' in (a as any)) || !('layoutGrids' in (b as any))) return false;
-  const t = (a as any).layoutGrids; (a as any).layoutGrids = (b as any).layoutGrids; (b as any).layoutGrids = t; return true;
+function swapRelativeTransforms(a: SceneNode, b: SceneNode) {
+  const absA = a.absoluteTransform;
+  const absB = b.absoluteTransform;
+  a.relativeTransform = toParentSpace(absB, a.parent as any);
+  b.relativeTransform = toParentSpace(absA, b.parent as any);
 }
 
-function swapExportSettings(a: SceneNode, b: SceneNode): boolean {
-  if (!('exportSettings' in (a as any)) || !('exportSettings' in (b as any))) return false;
-  const t = (a as any).exportSettings; (a as any).exportSettings = (b as any).exportSettings; (b as any).exportSettings = t; return true;
+function swapConstraints(a: SceneNode, b: SceneNode) {
+  if ("constraints" in a && "constraints" in b) {
+    const tmp = a.constraints;
+    a.constraints = b.constraints;
+    b.constraints = tmp;
+  }
 }
 
-// Best-effort variable mode swap: requires explicit mode APIs on nodes
-function swapVariableModes(a: SceneNode, b: SceneNode): boolean {
-  const aAny = a as any; const bAny = b as any;
-  const hasAPI = typeof aAny.getExplicitVariableModesForCollection === 'function'
-              && typeof bAny.getExplicitVariableModesForCollection === 'function'
-              && typeof aAny.setExplicitVariableModeForCollection === 'function'
-              && typeof bAny.setExplicitVariableModeForCollection === 'function'
-              && !!figma.variables;
-  if (!hasAPI) return false;
+function swapParentsAndIndex(a: SceneNode, b: SceneNode) {
+  const pA = a.parent as (BaseNode & ChildrenMixin) | null;
+  const pB = b.parent as (BaseNode & ChildrenMixin) | null;
+  if (!pA || !pB) return;
 
-  let touched = false;
-  try {
-    const collections = figma.variables.getLocalVariableCollections?.() || [];
-    for (const col of collections) {
-      const aMode = aAny.getExplicitVariableModesForCollection(col.id);
-      const bMode = bAny.getExplicitVariableModesForCollection(col.id);
-      if (aMode || bMode) {
-        aAny.setExplicitVariableModeForCollection(col.id, bMode ?? null);
-        bAny.setExplicitVariableModeForCollection(col.id, aMode ?? null);
-        touched = true;
-      }
-    }
-  } catch {
-    return false;
-  }
-  return touched;
-}
+  const iA = pA.children.indexOf(a);
+  const iB = pB.children.indexOf(b);
 
-// Utility to run property swaps and build a summary
-function runPropertySwaps(a: SceneNode, b: SceneNode, props: Set<PropToken>): { swapped: string[]; unsupported: number } {
-  const swapped: string[] = [];
-  let unsupported = 0;
-
-  function trySwap(label: PropToken, fn: () => boolean) {
-    const ok = fn();
-    if (ok) swapped.push(label);
-    else unsupported++;
-  }
-
-  const want = (label: PropToken) => props.has("(All)" as PropToken) || props.has(label);
-
-  if (want("Opacity"))        trySwap("Opacity",        () => swapOpacity(a,b));
-  if (want("Variable mode"))  trySwap("Variable mode",  () => swapVariableModes(a,b));
-  if (want("Blend mode"))     trySwap("Blend mode",     () => swapBlendMode(a,b));
-  if (want("Corner radius"))  trySwap("Corner radius",  () => swapCornerRadius(a,b));
-  if (want("Fill"))           trySwap("Fill",           () => swapFills(a,b));
-  if (want("Stroke"))         trySwap("Stroke",         () => swapStrokes(a,b));
-  if (want("Effect"))         trySwap("Effect",         () => swapEffects(a,b));
-  if (want("Layout grid"))    trySwap("Layout grid",    () => swapLayoutGrids(a,b));
-  if (want("Export"))         trySwap("Export",         () => swapExportSettings(a,b));
-
-  return { swapped, unsupported };
-}
-
-// --- Quick Actions parameter suggestions -------------------------------------
-
-figma.parameters.on("input", ({ key, query, result }) => {
-  if (figma.command === "Switch Layers") {
-    if (key === "mode") {
-      const q = (query || "").toLowerCase();
-      result.setSuggestions(LAYERS_PARAM_SUGGESTIONS.filter(s => s.includes(q)));
-    }
-  }
-  if (figma.command === "Switch Properties") {
-    if (key === "property") {
-      const q = (query || "").toLowerCase();
-      result.setSuggestions(PROPS_PARAM_SUGGESTIONS.filter(s => s.toLowerCase().includes(q)));
-    }
-  }
-});
-
-// --- Command runners ----------------------------------------------------------
-
-function ensureTwoLayers(): [SceneNode, SceneNode] | null {
-  const sel = figma.currentPage.selection;
-  if (sel.length !== 2) { notifyExit("❌ Select exactly 2 layers."); return null; }
-  const a = sel[0] as SceneNode, b = sel[1] as SceneNode;
-  if (!a.parent || !b.parent) { notifyExit("❌ Could not resolve parents."); return null; }
-  return [a,b];
-}
-
-function runSwitchLayers(mode: SwapLayersParam) {
-  const pair = ensureTwoLayers(); if (!pair) return;
-  const [a,b] = pair;
-
-  // Parent/index
-  let didReparent = false;
-  if (mode !== "canvas position") {
-    const ok = swapParentAndIndex(a,b);
-    if (!ok) return notifyExit("❌ Cannot swap parent/index here (invalid target or ancestor/descendant).");
-    didReparent = true;
-  }
-
-  // Transform (position+rotation)
-  let didTransform = false;
-  if (mode !== "layers panel") {
-    swapRelativeTransform(a,b);
-    didTransform = true;
-  }
-
-  // Constraints: apply in default & canvas position (not in layers panel)
-  let didConstraints = false;
-  if (mode === "(default)" || mode === "canvas position") {
-    didConstraints = swapConstraintsIfApplicable(a, a.parent, b, b.parent);
-  }
-
-  // Absolute Positioning (layoutPositioning) only when BOTH are children of AL parents (default & canvas position)
-  let didAbs = false;
-  if (mode === "(default)" || mode === "canvas position") {
-    didAbs = swapLayoutPositioningIfApplicable(a, b);
-  }
-
-  // Toast summary + AL caveat
-  const parts: string[] = [];
-  if (didReparent) parts.push("parent/index");
-  if (didTransform) parts.push("transform");
-  if (didConstraints) parts.push("constraints");
-  if (didAbs) parts.push("absolute positioning");
-
-  let note = "";
-  const aAutoChild = isALContainer(a.parent) && (a as any).layoutPositioning === "AUTO";
-  const bAutoChild = isALContainer(b.parent) && (b as any).layoutPositioning === "AUTO";
-  if (didTransform && (aAutoChild || bAutoChild)) {
-    note = " Note: AUTO-positioned auto-layout children may not visibly move.";
-  }
-
-  notifyExit(`✅ Swapped: ${parts.join(", ")}.${note}`);
-}
-
-function runSwitchProperties(property: PropToken | undefined) {
-  const pair = ensureTwoLayers(); if (!pair) return;
-  const [a,b] = pair;
-
-  const wanted = new Set<PropToken>(property ? [property] : ["(All)"]);
-
-  const { swapped, unsupported } = runPropertySwaps(a,b,wanted);
-  if (swapped.length === 0) {
-    return notifyExit(unsupported > 0 ? `⚠️ No properties swapped. Skipped ${unsupported} unsupported.` : "⚠️ No properties swapped.");
-  }
-  const summary = `✅ Swapped: ${swapped.join(", ")}.` + (unsupported ? ` Skipped ${unsupported} unsupported.` : "");
-  notifyExit(summary);
-}
-
-// --- UI helpers --------------------------------------------------------------
-
-function computeSupport(a: SceneNode, b: SceneNode) {
-  const aP = a.parent; const bP = b.parent;
-
-  // Position/Rotation via relativeTransform (may not translate in AL/AUTO)
-  const positionX = true, positionY = true, rotation = true;
-
-  const constraints = nonALFrame(aP) && nonALFrame(bP) && ('constraints' in (a as any)) && ('constraints' in (b as any));
-  const ignoreLayout = isALContainer(aP) && isALContainer(bP) && ((a as any).layoutPositioning !== undefined) && ((b as any).layoutPositioning !== undefined);
-  const layoutGrid = ('layoutGrids' in (a as any)) && ('layoutGrids' in (b as any));
-
-  const opacity = ('opacity' in (a as any)) && ('opacity' in (b as any));
-  const variableMode = typeof (a as any).getExplicitVariableModesForCollection === 'function'
-                    && typeof (b as any).getExplicitVariableModesForCollection === 'function'
-                    && typeof (a as any).setExplicitVariableModeForCollection === 'function'
-                    && typeof (b as any).setExplicitVariableModeForCollection === 'function'
-                    && !!figma.variables;
-  const blendMode = ('blendMode' in (a as any)) && ('blendMode' in (b as any));
-  const cornerRadius = ['cornerRadius','cornerSmoothing','topLeftRadius','topRightRadius','bottomRightRadius','bottomLeftRadius']
-    .some(k => (k in (a as any)) && (k in (b as any)));
-
-  const fill = ('fills' in (a as any)) && ('fills' in (b as any));
-  const stroke = ['strokes','strokeWeight','strokeAlign','strokeCap','strokeJoin','dashPattern']
-    .every(k => (k in (a as any)) && (k in (b as any)));
-  const effect = ('effects' in (a as any)) && ('effects' in (b as any));
-  const exportable = ('exportSettings' in (a as any)) && ('exportSettings' in (b as any));
-
-  return {
-    positionX, positionY, rotation,
-    constraints, ignoreLayout, layoutGrid,
-    opacity, variableMode, blendMode, cornerRadius,
-    fill, stroke, effect, exportable
-  };
-}
-
-function runAdvanced(payload: {
-  flags: {
-    x: boolean; y: boolean; rotation: boolean;
-    constraints: boolean; ignoreLayout: boolean; layoutGrid: boolean;
-    opacity: boolean; variableMode: boolean; blendMode: boolean; cornerRadius: boolean;
-    fill: boolean; stroke: boolean; effect: boolean; exportable: boolean;
-  };
-  swapInLayers: boolean;
-}) {
-  const pair = ensureTwoLayers(); if (!pair) return;
-  const [a,b] = pair;
-
-  // Optional reparent/index
-  let didReparent = false;
-  if (payload.swapInLayers) {
-    const ok = swapParentAndIndex(a,b);
-    if (ok) didReparent = true; else return notifyExit("❌ Cannot swap parent/index here (invalid target or ancestor/descendant).");
-  }
-
-  // Position/rotation via relativeTransform
-  let didTransform = false;
-  if (payload.flags.x || payload.flags.y || payload.flags.rotation) {
-    swapRelativeTransform(a,b);
-    didTransform = true;
-  }
-
-  // Layout-level extras
-  let didConstraints = false, didAbs = false;
-  if (payload.flags.constraints) {
-    didConstraints = swapConstraintsIfApplicable(a, a.parent, b, b.parent);
-  }
-  if (payload.flags.ignoreLayout) {
-    didAbs = swapLayoutPositioningIfApplicable(a,b);
-  }
-
-  // Properties
-  const propsWanted = new Set<PropToken>();
-  if (payload.flags.opacity)        propsWanted.add("Opacity");
-  if (payload.flags["variableMode" as keyof typeof payload.flags]) propsWanted.add("Variable mode");
-  if (payload.flags.blendMode)      propsWanted.add("Blend mode");
-  if (payload.flags.cornerRadius)   propsWanted.add("Corner radius");
-  if (payload.flags.fill)           propsWanted.add("Fill");
-  if (payload.flags.stroke)         propsWanted.add("Stroke");
-  if (payload.flags.effect)         propsWanted.add("Effect");
-  if (payload.flags.layoutGrid)     propsWanted.add("Layout grid");
-  if (payload.flags.exportable)     propsWanted.add("Export");
-
-  const { swapped, unsupported } = runPropertySwaps(a,b,propsWanted);
-
-  const parts: string[] = [];
-  if (didReparent) parts.push("parent/index");
-  if (didTransform) parts.push("transform");
-  if (didConstraints) parts.push("constraints");
-  if (didAbs) parts.push("absolute positioning");
-  if (swapped.length) parts.push(...swapped.map(s => s.toLowerCase()));
-
-  let note = "";
-  const aAutoChild = isALContainer(a.parent) && (a as any).layoutPositioning === "AUTO";
-  const bAutoChild = isALContainer(b.parent) && (b as any).layoutPositioning === "AUTO";
-  if (didTransform && (aAutoChild || bAutoChild)) {
-    note = " Note: AUTO-positioned auto-layout children may not visibly move.";
-  }
-
-  const base = parts.length ? `✅ Swapped: ${parts.join(", ")}.` : "✅ No changes requested.";
-  const skip = unsupported ? ` Skipped ${unsupported} unsupported.` : "";
-  notifyExit(base + skip + note);
-}
-
-// --- Selection change -> UI sync ---------------------------------------------
-
-figma.on("selectionchange", () => {
-  if (figma.command === "Switch…") {
-    const sel = figma.currentPage.selection;
-    if (sel.length === 2) {
-      const [a,b] = sel as [SceneNode, SceneNode];
-      figma.ui?.postMessage({ type: "SUPPORT_STATE", support: computeSupport(a,b) });
+  if (pA === pB) {
+    const p = pA;
+    if (iA === iB) return;
+    if (iA < iB) {
+      p.insertChild(iB, a);
+      p.insertChild(iA, b);
     } else {
-      figma.ui?.postMessage({ type: "SUPPORT_STATE", support: null });
+      p.insertChild(iA, b);
+      p.insertChild(iB, a);
     }
+    return;
+  }
+
+  // Different parents
+  pA.insertChild(iA, b);
+  pB.insertChild(iB, a);
+}
+
+// Property swaps
+function swapOpacity(a: SceneNode, b: SceneNode) {
+  if ("opacity" in a && "opacity" in b) {
+    const t = a.opacity; a.opacity = b.opacity; b.opacity = t; return true;
+  }
+  return false;
+}
+function swapBlendMode(a: SceneNode, b: SceneNode) {
+  if ("blendMode" in a && "blendMode" in b) {
+    const t = a.blendMode; a.blendMode = b.blendMode; b.blendMode = t; return true;
+  }
+  return false;
+}
+function swapCornerRadius(a: SceneNode, b: SceneNode) {
+  if (!("cornerRadius" in a) || !("cornerRadius" in b)) return false;
+
+  const hasIndA = "topLeftRadius" in (a as any);
+  const hasIndB = "topLeftRadius" in (b as any);
+
+  if (hasIndA && hasIndB) {
+    const ar = {
+      tl: (a as any).topLeftRadius, tr: (a as any).topRightRadius,
+      bl: (a as any).bottomLeftRadius, br: (a as any).bottomRightRadius
+    };
+    const br = {
+      tl: (b as any).topLeftRadius, tr: (b as any).topRightRadius,
+      bl: (b as any).bottomLeftRadius, br: (b as any).bottomRightRadius
+    };
+    (a as any).topLeftRadius = br.tl; (a as any).topRightRadius = br.tr;
+    (a as any).bottomLeftRadius = br.bl; (a as any).bottomRightRadius = br.br;
+    (b as any).topLeftRadius = ar.tl; (b as any).topRightRadius = ar.tr;
+    (b as any).bottomLeftRadius = ar.bl; (b as any).bottomRightRadius = ar.br;
+    return true;
+  }
+
+  const t = (a as any).cornerRadius;
+  (a as any).cornerRadius = (b as any).cornerRadius;
+  (b as any).cornerRadius = t;
+  return true;
+}
+function swapFills(a: SceneNode, b: SceneNode) {
+  if ("fills" in a && "fills" in b) {
+    const t = a.fills; a.fills = b.fills; b.fills = t;
+    if ("fillStyleId" in a && "fillStyleId" in b) {
+      const ts = (a as any).fillStyleId; (a as any).fillStyleId = (b as any).fillStyleId; (b as any).fillStyleId = ts;
+    }
+    return true;
+  }
+  return false;
+}
+function swapStrokes(a: SceneNode, b: SceneNode) {
+  if ("strokes" in a && "strokes" in b) {
+    let t: any;
+    t = a.strokes; a.strokes = b.strokes; b.strokes = t;
+    if ("strokeStyleId" in a && "strokeStyleId" in b) { t = (a as any).strokeStyleId; (a as any).strokeStyleId = (b as any).strokeStyleId; (b as any).strokeStyleId = t; }
+    if ("strokeWeight" in a && "strokeWeight" in b) { t = (a as any).strokeWeight; (a as any).strokeWeight = (b as any).strokeWeight; (b as any).strokeWeight = t; }
+    if ("strokeAlign" in a && "strokeAlign" in b) { t = (a as any).strokeAlign; (a as any).strokeAlign = (b as any).strokeAlign; (b as any).strokeAlign = t; }
+    if ("dashPattern" in a && "dashPattern" in b) { t = (a as any).dashPattern; (a as any).dashPattern = (b as any).dashPattern; (b as any).dashPattern = t; }
+    if ("strokeCap" in a && "strokeCap" in b) { t = (a as any).strokeCap; (a as any).strokeCap = (b as any).strokeCap; (b as any).strokeCap = t; }
+    if ("strokeJoin" in a && "strokeJoin" in b) { t = (a as any).strokeJoin; (a as any).strokeJoin = (b as any).strokeJoin; (b as any).strokeJoin = t; }
+    if ("strokeMiterLimit" in a && "strokeMiterLimit" in b) { t = (a as any).strokeMiterLimit; (a as any).strokeMiterLimit = (b as any).strokeMiterLimit; (b as any).strokeMiterLimit = t; }
+    return true;
+  }
+  return false;
+}
+function swapEffects(a: SceneNode, b: SceneNode) {
+  if ("effects" in a && "effects" in b) {
+    const t = a.effects; a.effects = b.effects; b.effects = t;
+    if ("effectStyleId" in a && "effectStyleId" in b) {
+      const ts = (a as any).effectStyleId; (a as any).effectStyleId = (b as any).effectStyleId; (b as any).effectStyleId = ts;
+    }
+    return true;
+  }
+  return false;
+}
+function swapLayoutGrids(a: SceneNode, b: SceneNode) {
+  if ("layoutGrids" in a && "layoutGrids" in b) {
+    const t = a.layoutGrids; a.layoutGrids = b.layoutGrids; b.layoutGrids = t;
+    if ("gridStyleId" in a && "gridStyleId" in b) {
+      const ts = (a as any).gridStyleId; (a as any).gridStyleId = (b as any).gridStyleId; (b as any).gridStyleId = ts;
+    }
+    return true;
+  }
+  return false;
+}
+function swapExport(a: SceneNode, b: SceneNode) {
+  if ("exportSettings" in a && "exportSettings" in b) {
+    const t = a.exportSettings; a.exportSettings = b.exportSettings; b.exportSettings = t; return true;
+  }
+  return false;
+}
+
+// Orchestrators
+function doSwitchLayers(scope: "default" | "canvas" | "panel"): number | "invalid" {
+  const pair = requireTwo();
+  if (!pair) return "invalid";
+  const [a, b] = pair;
+
+  let issues = 0;
+  const absA = a.absoluteTransform;
+  const absB = b.absoluteTransform;
+  const doPanel = (scope === "default" || scope === "panel");
+  const doCanvas = (scope === "default" || scope === "canvas");
+
+  try {
+    if (doPanel) swapParentsAndIndex(a, b);
+
+    // swap LP here once (optional: see note 3)
+    if (doCanvas && "layoutPositioning" in a && "layoutPositioning" in b) {
+      const t = a.layoutPositioning; a.layoutPositioning = b.layoutPositioning; b.layoutPositioning = t;
+    }
+
+    if (doCanvas) { try { swapConstraints(a, b); } catch {} }
+
+    if (doCanvas) {
+      if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absB, a.parent as any);
+      if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absA, b.parent as any);
+    } else if (doPanel) {
+      if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absA, a.parent as any);
+      if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absB, b.parent as any);
+    }
+  } catch { issues++; }
+
+  return issues; // <-- important
+}
+
+type PropKey = "opacity" | "blend mode" | "corner radius" | "fill" | "stroke" | "effect" | "layout grid" | "export";
+
+function doSwitchProperties(prop: PropKey | "all"): { tried: number; ok: number; fail: number } | "invalid" {
+  const pair = requireTwo();
+  if (!pair) return "invalid";
+  const [a, b] = pair;
+
+  const run = (k: PropKey) => {
+    switch (k) {
+      case "opacity": return swapOpacity(a, b);
+      case "blend mode": return swapBlendMode(a, b);
+      case "corner radius": return swapCornerRadius(a, b);
+      case "fill": return swapFills(a, b);
+      case "stroke": return swapStrokes(a, b);
+      case "effect": return swapEffects(a, b);
+      case "layout grid": return swapLayoutGrids(a, b);
+      case "export": return swapExport(a, b);
+    }
+  };
+
+  const keys: PropKey[] = ["opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export"];
+  let tried = 0, ok = 0;
+  if (prop === "all") for (const k of keys) { tried++; if (run(k)) ok++; }
+  else { tried = 1; if (run(prop)) ok = 1; }
+  const fail = tried - ok;
+
+  return { tried, ok, fail }; // <-- important
+}
+
+// --- DEBUG HEADER: place near top of code.ts ---
+console.clear();
+console.log("[switcheroo] boot", Date.now());
+
+let PARAM_HITS = 0;
+
+figma.parameters.on("input", ({ query, key, result }) => {
+  try {
+    PARAM_HITS++;
+    console.log("[switcheroo] param input", { key, query, hits: PARAM_HITS });
+
+    const q = (query ?? "").toLowerCase();
+
+    if (key === "scope") {
+      const choices = ["(default)", "canvas position", "layers panel"];
+      result.setSuggestions(choices.filter(c => c.toLowerCase().includes(q)));
+      return;
+    }
+
+    if (key === "property") {
+      const choices = ["(all)", "opacity", "blend mode", "corner radius", "fill", "stroke", "effect", "layout grid", "export"];
+      result.setSuggestions(choices.filter(c => c.toLowerCase().includes(q)));
+      return;
+    }
+
+    console.warn("[switcheroo] unknown param key", key);
+    result.setSuggestions([]);
+  } catch (e) {
+    console.error("[switcheroo] param handler error", e);
+    result.setSuggestions([]);
   }
 });
+// --- END DEBUG HEADER ---
 
-// --- Entry -------------------------------------------------------------------
 
-figma.on("run", (evt) => {
-  const command = figma.command;
+// Run + parameter suggestions
+figma.on("run", ({ command, parameters }) => {
+  console.log("[switcheroo] run", { command, parameters });
+  if (command === "switch-layers") {
+    // If Quick Actions is just opening the parameter UI, do not close.
+    if (!parameters || Object.keys(parameters).length === 0) return;
 
-  if (command === "Switch Layers") {
-    const mode = ((evt as RunEvent).parameters?.["mode"] as SwapLayersParam | undefined) ?? "(default)";
-    runSwitchLayers(mode);
+    const scopeRaw = (parameters.scope ?? "(default)").toString().toLowerCase();
+    const scope = scopeRaw.includes("canvas") ? "canvas"
+               : (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel"
+               : "default";
+
+    let msg = "Switched layers.";
+    try {
+      const res = doSwitchLayers(scope);
+      if (res === "invalid") msg = "Select exactly two layers.";
+      else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s).`;
+    } catch { msg = "Switched layers with issues."; }
+    finally { figma.closePlugin(msg); }
     return;
   }
 
-  if (command === "Switch Properties") {
-    const prop = (evt as RunEvent).parameters?.["property"] as PropToken | undefined;
-    runSwitchProperties(prop);
+  if (command === "switch-properties") {
+    if (!parameters || Object.keys(parameters).length === 0) return;
+
+    const map: Record<string, PropKey | "all"> = {
+      "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
+      "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
+      "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export"
+    };
+    const key = map[(parameters.property ?? "(all)").toString().toLowerCase()] ?? "all";
+
+    let msg = "Switched properties.";
+    try {
+      const res = doSwitchProperties(key);
+      if (res === "invalid") msg = "Select exactly two layers.";
+      else if (res.ok === 0) msg = "No eligible properties to switch.";
+      else if (res.fail > 0) msg = `Switched ${res.ok} propert${res.ok === 1 ? "y" : "ies"}. ${res.fail} skipped.`;
+    } catch { msg = "Switched properties with issues."; }
+    finally { figma.closePlugin(msg); }
     return;
   }
 
-  if (command === "Switch…") {
+  if (command === "switch-ui") {
     figma.showUI(__html__, { width: 320, height: 428, themeColors: true });
-
-    // wire UI handlers (no optional chaining on LHS)
-    if (figma.ui) {
-      figma.ui.onmessage = (msg) => {
-        if (msg?.type === "ADVANCED_RUN") runAdvanced(msg.payload);
-        if (msg?.type === "REQUEST_SUPPORT") {
-          const pair = ensureTwoLayers(); if (!pair) return;
-          const [a,b] = pair;
-          figma.ui!.postMessage({ type: "SUPPORT_STATE", support: computeSupport(a,b) });
-        }
-      };
-
-      // send initial support state
-      const sel = figma.currentPage.selection;
-      const support = sel.length === 2 ? computeSupport(sel[0] as SceneNode, sel[1] as SceneNode) : null;
-      figma.ui.postMessage({ type: "SUPPORT_STATE", support });
-    }
-    return;
+    postSelectionState();
+    bindUiHandlers();
   }
-
-  notifyExit("❌ Unknown command.");
 });
+
+// UI messaging
+type UiOptions = {
+  swapInLayers: boolean;
+  position: { x: boolean; y: boolean; rotation: boolean; constraints: boolean; ignoreLayout: boolean };
+  appearance: { opacity: boolean; blendMode: boolean; cornerRadius: boolean };
+  props: { fill: boolean; stroke: boolean; effect: boolean; layoutGrid: boolean; export: boolean };
+};
+type UiMessage =
+  | { type: "RUN_SWAP"; payload: { options: UiOptions | null } }
+  | { type: "SELECTION_STATE"; payload?: any } // sent to UI
+  | { type: "DONE"; payload?: any }            // sent to UI
+  | { type: "REQUEST_SELECTION_STATE" }
+  | { type: "CLOSE" };
+
+function postSelectionState() {
+  if (!figma.ui) return; // prevent error if no UI open
+  const pair = figma.currentPage.selection.filter((n): n is SceneNode => true).slice(0, 2);
+  const has = (checker: (n: SceneNode) => boolean) => pair.some(checker);
+  const state = {
+    hasPosition: pair.length === 2,
+    canConstraints: has((n) => "constraints" in n),
+    canCorner: has((n) => "cornerRadius" in n),
+    canFill: has((n) => "fills" in n),
+    canStroke: has((n) => "strokes" in n),
+    canEffect: has((n) => "effects" in n),
+    canGrid: has((n) => "layoutGrids" in n),
+    canExport: has((n) => "exportSettings" in n),
+    twoSelected: pair.length === 2
+  };
+  figma.ui.postMessage({ type: "SELECTION_STATE", payload: state });
+}
+
+function bindUiHandlers() {
+  figma.on("selectionchange", postSelectionState);
+
+  figma.ui.onmessage = (msg: UiMessage) => {
+    if (msg.type === "REQUEST_SELECTION_STATE") {
+      postSelectionState();
+      return;
+    }
+    if (msg.type === "RUN_SWAP") {
+      const opts = msg.payload.options;
+      if (!opts) { figma.closePlugin(); return; }
+
+      const pair = requireTwo();
+      if (!pair) {
+        if (figma.ui) figma.ui.postMessage({ type: "DONE", payload: { ok: false } });
+        return;
+      }
+      const [a, b] = pair;
+
+      let issues = 0;
+      // ... your swap logic stays exactly as it is ...
+      if (figma.ui) figma.ui.postMessage({ type: "DONE", payload: { ok: issues === 0, issues } });
+      if (issues === 0) figma.notify("Swap complete.");
+      else figma.notify(`Swap finished with ${issues} issue(s).`, { error: true });
+      return;
+    }
+    if (msg.type === "CLOSE") {
+      figma.closePlugin();
+    }
+  };
+}

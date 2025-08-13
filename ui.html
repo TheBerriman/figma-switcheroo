@@ -700,157 +700,147 @@
     </div>
 
     <script>
-        // State management
-        let currentSupport = {};
-        let swapInLayersEnabled = false;
+        // Utility: normalize text
+        const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
-        // Initialize UI
-        function initializeUI() {
-            setupEventListeners();
-            requestSupportUpdate();
+        // Find a checkbox by the visible label text next to it
+        function findCheckboxByLabelText(targetText) {
+            const labels = Array.from(document.querySelectorAll("label"));
+            const t = norm(targetText);
+            for (const label of labels) {
+            const txt = norm(label.textContent);
+            if (!txt) continue;
+            // match exact or prefix to tolerate extra hints like "(…)"
+            if (txt === t || txt.startsWith(t)) {
+                const input = label.querySelector('input[type="checkbox"]');
+                if (input) return input;
+            }
+            }
+            return null;
         }
 
-        function setupEventListeners() {
-            // Checkbox clicks
-            document.querySelectorAll('.checkbox:not(.disabled)').forEach(checkbox => {
-                checkbox.addEventListener('click', function() {
-                    const property = this.getAttribute('data-property');
-                    if (currentSupport[property] !== false) {
-                        this.classList.toggle('checked');
-                    }
-                });
-                
-                // Make checkbox focusable
-                checkbox.setAttribute('tabindex', '0');
-                
-                // Handle keyboard events
-                checkbox.addEventListener('keydown', function(e) {
-                    if (e.key === 'Space' || e.key === ' ') {
-                        e.preventDefault();
-                        const property = this.getAttribute('data-property');
-                        if (currentSupport[property] !== false) {
-                            this.classList.toggle('checked');
-                        }
-                    }
-                });
-            });
-
-            // Switch toggle
-            const switchToggle = document.getElementById('swapInLayersToggle');
-            switchToggle.addEventListener('click', function() {
-                swapInLayersEnabled = !swapInLayersEnabled;
-                this.classList.toggle('active', swapInLayersEnabled);
-            });
-            
-            // Handle keyboard events for switch
-            switchToggle.addEventListener('keydown', function(e) {
-                if (e.key === 'Space' || e.key === ' ') {
-                    e.preventDefault();
-                    swapInLayersEnabled = !swapInLayersEnabled;
-                    this.classList.toggle('active', swapInLayersEnabled);
-                }
-            });
-
-            // Buttons
-            document.getElementById('cancelButton').addEventListener('click', function() {
-                parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
-            });
-
-            document.getElementById('switchButton').addEventListener('click', function() {
-                executeSwap();
-            });
-
-            // Keyboard shortcuts
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    executeSwap();
-                } else if (e.key === 'Escape') {
-                    parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
-                }
-            });
+        // Find a button by its visible text
+        function findButtonByText(targetText) {
+            const t = norm(targetText);
+            const btns = Array.from(document.querySelectorAll("button"));
+            for (const b of btns) {
+            if (norm(b.textContent) === t) return b;
+            }
+            return null;
         }
 
-        function requestSupportUpdate() {
-            parent.postMessage({ pluginMessage: { type: 'get-support' } }, '*');
+        // Controls, resolved by label text in your markup
+        const controls = {
+            // Position
+            posX:        () => findCheckboxByLabelText("X-position"),
+            posY:        () => findCheckboxByLabelText("Y-position"),
+            posRot:      () => findCheckboxByLabelText("Rotation"),
+            constraints: () => findCheckboxByLabelText("Constraints"),
+            // Some UIs include these read-only hints; ignore if missing
+            ignoreLayout:() => findCheckboxByLabelText("Ignore layout"),
+            // Appearance
+            opacity:     () => findCheckboxByLabelText("Opacity"),
+            blendMode:   () => findCheckboxByLabelText("Blend mode"),
+            cornerRadius:() => findCheckboxByLabelText("Corner radius"),
+            // Properties
+            fill:        () => findCheckboxByLabelText("Fill"),
+            stroke:      () => findCheckboxByLabelText("Stroke"),
+            effect:      () => findCheckboxByLabelText("Effect"),
+            layoutGrid:  () => findCheckboxByLabelText("Layout grid"),
+            export:      () => findCheckboxByLabelText("Export"),
+            // Footer controls
+            swapInLayers:() => findCheckboxByLabelText("Swap in Layers"),
+            btnCancel:   () => findButtonByText("Cancel"),
+            btnSwitch:   () => findButtonByText("Switch"),
+            hint:        () => document.getElementById("hint") || (() => {
+                            const p = document.createElement("p");
+                            p.id = "hint"; p.style.marginTop = "8px"; p.className = "muted";
+                            document.body.appendChild(p); return p;
+                            })()
+        };
+
+        function lockCheckbox(input, on) {
+            if (!input) return;
+            const label = input.closest("label");
+            input.disabled = !on;
+            if (label) label.classList.toggle("disabled", !on);
         }
 
-        function updateSupport(support) {
-            currentSupport = support;
-            
-            // Update all property items
-            document.querySelectorAll('.property-item').forEach(item => {
-                const property = item.getAttribute('data-property');
-                const checkbox = item.querySelector('.checkbox');
-                const isSupported = support[property] === true;
-                
-                // Skip permanently disabled items
-                if (property === 'ignoreLayout' || property === 'stroke') {
-                    return;
-                }
-                
-                if (isSupported) {
-                    item.classList.remove('disabled');
-                    checkbox.classList.remove('disabled');
-                    checkbox.setAttribute('tabindex', '0');
-                } else {
-                    item.classList.add('disabled');
-                    checkbox.classList.add('disabled');
-                    checkbox.classList.remove('checked');
-                    checkbox.removeAttribute('tabindex');
-                }
-            });
-        }
-
-        function getSwapFlags() {
-            const flags = {
-                xPosition: false,
-                yPosition: false,
-                rotation: false,
-                constraints: false,
-                absolutePosition: false,
-                layoutGrid: false,
-                opacity: false,
-                variableMode: false,
-                blendMode: false,
-                cornerRadius: false,
-                fill: false,
-                stroke: false,
-                effect: false,
-                export: false,
-                swapInLayersPanel: swapInLayersEnabled
+        function readOptions() {
+            const get = (fn, d=false)=>{ try{ const el = fn(); return el ? !!el.checked : d; }catch{ return d; } };
+            return {
+            swapInLayers: get(controls.swapInLayers, false),
+            position: {
+                x: get(controls.posX, true),
+                y: get(controls.posY, true),
+                rotation: get(controls.posRot, true),
+                constraints: get(controls.constraints, true),
+                ignoreLayout: get(controls.ignoreLayout, false)
+            },
+            appearance: {
+                opacity: get(controls.opacity, true),
+                blendMode: get(controls.blendMode, true),
+                cornerRadius: get(controls.cornerRadius, false)
+            },
+            props: {
+                fill: get(controls.fill, true),
+                stroke: get(controls.stroke, true),
+                effect: get(controls.effect, false),
+                layoutGrid: get(controls.layoutGrid, false),
+                export: get(controls.export, false)
+            }
             };
-
-            // Check each checkbox
-            document.querySelectorAll('.checkbox.checked:not(.disabled)').forEach(checkbox => {
-                const property = checkbox.getAttribute('data-property');
-                if (flags.hasOwnProperty(property)) {
-                    flags[property] = true;
-                }
-            });
-
-            return flags;
         }
 
-        function executeSwap() {
-            const flags = getSwapFlags();
-            parent.postMessage({ 
-                pluginMessage: { 
-                    type: 'swap', 
-                    flags: flags 
-                } 
-            }, '*');
+        function applySelectionState(s) {
+            // Position toggles require exactly two selected
+            const two = !!s?.twoSelected;
+            lockCheckbox(controls.posX(), two);
+            lockCheckbox(controls.posY(), two);
+            lockCheckbox(controls.posRot(), two);
+
+            // Constraints availability
+            lockCheckbox(controls.constraints(), !!s?.canConstraints);
+
+            // Appearance
+            lockCheckbox(controls.cornerRadius(), !!s?.canCorner);
+
+            // Properties
+            lockCheckbox(controls.fill(),   !!s?.canFill);
+            lockCheckbox(controls.stroke(), !!s?.canStroke);
+            lockCheckbox(controls.effect(), !!s?.canEffect);
+            lockCheckbox(controls.layoutGrid(), !!s?.canGrid);
+            lockCheckbox(controls.export(), !!s?.canExport);
+
+            const hint = controls.hint();
+            if (hint) hint.textContent = two ? "" : "Select exactly two layers to enable swapping.";
         }
 
-        // Message handling
-        window.onmessage = (event) => {
-            const msg = event.data.pluginMessage;
-            if (msg && msg.type === 'support-update') {
-                updateSupport(msg.support);
+        // Wire buttons
+        const btnCancel = controls.btnCancel();
+        if (btnCancel) btnCancel.addEventListener("click", () => {
+            parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options: null } } }, "*");
+        });
+
+        const btnSwitch = controls.btnSwitch();
+        if (btnSwitch) btnSwitch.addEventListener("click", () => {
+            const options = readOptions();
+            parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options } } }, "*");
+        });
+
+        // Receive messages from plugin
+        window.onmessage = (e) => {
+            const msg = e.data && e.data.pluginMessage;
+            if (!msg) return;
+            if (msg.type === "SELECTION_STATE") applySelectionState(msg.payload);
+            if (msg.type === "DONE") {
+            parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
             }
         };
 
-        // Initialize when loaded
-        initializeUI();
-    </script>
+        // Ask plugin for initial state
+        parent.postMessage({ pluginMessage: { type: "REQUEST_SELECTION_STATE" } }, "*");
+        </script>
+
 </body>
 </html>

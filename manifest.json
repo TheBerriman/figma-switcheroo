@@ -8,19 +8,32 @@
   "documentAccess": "dynamic-page",
   "editorType": ["figma"],
   "ui": "ui.html",
-  "networkAccess": {
-    "allowedDomains": [
-      "none"
-    ]
-  },
   "menu": [
-    { "name": "Switch Layers", "command": "Switch Layers", "parameters": [
-      { "name": "Choose what to swap", "key": "mode", "description": "(default) | canvas position | layers panel", "optional": true }
-    ]},
-    { "name": "Switch Properties", "command": "Switch Properties", "parameters": [
-      { "name": "Choose a property to swap", "key": "property", "description": "(All) | Opacity | Variable mode | Blend mode | Corner radius | Fill | Stroke | Effect | Layout grid | Export", "optional": true }
-    ]},
+    {
+      "name": "Switch Layers",
+      "command": "switch-layers",
+      "parameters": [
+        {
+          "key": "scope",
+          "name": "Choose what to swap",
+          "description": "(default) | canvas position | layers panel",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "Switch Properties",
+      "command": "switch-properties",
+      "parameters": [
+        {
+          "key": "property",
+          "name": "Property to swap",
+          "description": "(all) | opacity | blend mode | corner radius | fill | stroke | effect | layout grid | export",
+          "optional": true
+        }
+      ]
+    },
     { "separator": true },
-    { "name": "Switch…", "command": "Switch…" }
+    { "name": "Swap…", "command": "switch-ui" }
   ]
 }
