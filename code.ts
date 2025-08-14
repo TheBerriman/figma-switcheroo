@@ -68,7 +68,7 @@ function inComponentOrInstance(n: SceneNode): boolean {
   return false;
 }
 
-function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" {
+function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" | "blocked" {
   const pair = requireTwo(); if (!pair) return "invalid";
   const [a,b] = pair;
 
@@ -101,9 +101,10 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" {
 }
 
 // ---- properties
-type PropKey = "opacity"|"blend mode"|"corner radius"|"fill"|"stroke"|"effect"|"layout grid"|"export";
+type PropKey = "opacity"|"blend mode"|"corner radius"|"fill"|"stroke"|"effect"|"layout grid"|"export"|"variable mode";
 
-type Swapper = (a: SceneNode, b: SceneNode) => 1 | undefined;
+type Swapper = (a: SceneNode, b: SceneNode) => 1 | undefined | Promise<1 | undefined>;
+const cloneObjs = <T extends object>(arr: ReadonlyArray<T>): T[] => arr.map(o => ({ ...o }));
 
 const swap: Record<PropKey, Swapper> = {
   opacity: (a: SceneNode, b: SceneNode) =>
@@ -247,6 +248,7 @@ figma.on("run", async ({ command, parameters }) => {
     try {
       const res = doSwitchLayers(scope);
       if (res === "invalid") msg = "Select exactly two layers.";
+      else if (res === "blocked") msg = "Not supported on components or instances.";
       else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s).`;
     } catch { msg = "Switched layers with issues."; }
     setTimeout(() => figma.closePlugin(msg), 0);
@@ -273,12 +275,13 @@ figma.on("run", async ({ command, parameters }) => {
     return;
   }
 
-  async function loadUiOptions(): Promise<UiOptions|null> {
+  async function loadUiOptions(): Promise<UiOptions | null> {
     try { return await figma.clientStorage.getAsync("switcheroo.ui.options"); } catch { return null; }
   }
   async function saveUiOptions(opts: UiOptions) {
     try { await figma.clientStorage.setAsync("switcheroo.ui.options", opts); } catch {}
   }
+
 
   if (command === "switch-ui") {
     figma.showUI(__html__, { width: 320, height: 428, themeColors: true });
@@ -349,7 +352,6 @@ function bindUiHandlers() {
     if (opts.props.effect) props.push("effect");
     if (opts.props.layoutGrid) props.push("layout grid");
     if (opts.props.export) props.push("export");
-    if (opts.appearance.variableMode) props.push("variable mode");
 
     for (const p of props) await doSwitchProperties(p);
 
