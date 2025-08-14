@@ -258,88 +258,69 @@ function doSwitchProperties(prop: PropKey | "all"): { tried: number; ok: number;
   return { tried, ok, fail }; // <-- important
 }
 
-// --- DEBUG HEADER: place near top of code.ts ---
-console.clear();
-console.log("[switcheroo] boot", Date.now());
-
-let PARAM_HITS = 0;
-
-figma.parameters.on("input", ({ query, key, result }) => {
-  try {
-    PARAM_HITS++;
-    console.log("[switcheroo] param input", { key, query, hits: PARAM_HITS });
-
-    const q = (query ?? "").toLowerCase();
-
-    if (key === "scope") {
-      const choices = ["(default)", "canvas position", "layers panel"];
-      result.setSuggestions(choices.filter(c => c.toLowerCase().includes(q)));
-      return;
-    }
-
-    if (key === "property") {
-      const choices = ["(all)", "opacity", "blend mode", "corner radius", "fill", "stroke", "effect", "layout grid", "export"];
-      result.setSuggestions(choices.filter(c => c.toLowerCase().includes(q)));
-      return;
-    }
-
-    console.warn("[switcheroo] unknown param key", key);
-    result.setSuggestions([]);
-  } catch (e) {
-    console.error("[switcheroo] param handler error", e);
-    result.setSuggestions([]);
-  }
-});
-// --- END DEBUG HEADER ---
-
-
 // Run + parameter suggestions
 figma.on("run", ({ command, parameters }) => {
-  console.log("[switcheroo] run", { command, parameters });
   if (command === "switch-layers") {
-    // If Quick Actions is just opening the parameter UI, do not close.
-    if (!parameters || Object.keys(parameters).length === 0) return;
-
-    const scopeRaw = (parameters.scope ?? "(default)").toString().toLowerCase();
+    const scopeRaw = (parameters?.scope ?? "(default)").toString().toLowerCase();
     const scope = scopeRaw.includes("canvas") ? "canvas"
-               : (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel"
-               : "default";
+            : (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel"
+            : "default";
 
     let msg = "Switched layers.";
     try {
-      const res = doSwitchLayers(scope);
+      const res = doSwitchLayers(scope as any);
       if (res === "invalid") msg = "Select exactly two layers.";
       else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s).`;
-    } catch { msg = "Switched layers with issues."; }
-    finally { figma.closePlugin(msg); }
+    } catch {
+      msg = "Switched layers with issues.";
+    } finally {
+      // Force Quick Actions to close after mutations settle
+      setTimeout(() => figma.closePlugin(msg), 0);
+    }
     return;
   }
 
   if (command === "switch-properties") {
-    if (!parameters || Object.keys(parameters).length === 0) return;
-
+    const p = (parameters?.property ?? "(all)").toString().toLowerCase();
     const map: Record<string, PropKey | "all"> = {
       "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
       "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
       "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export"
     };
-    const key = map[(parameters.property ?? "(all)").toString().toLowerCase()] ?? "all";
 
     let msg = "Switched properties.";
     try {
-      const res = doSwitchProperties(key);
+      const res = doSwitchProperties(map[p] ?? "all");
       if (res === "invalid") msg = "Select exactly two layers.";
-      else if (res.ok === 0) msg = "No eligible properties to switch.";
-      else if (res.fail > 0) msg = `Switched ${res.ok} propert${res.ok === 1 ? "y" : "ies"}. ${res.fail} skipped.`;
-    } catch { msg = "Switched properties with issues."; }
-    finally { figma.closePlugin(msg); }
+      else if (res) {
+        if (res.ok === 0) msg = "No eligible properties to switch.";
+        else if (res.fail > 0) msg = `Switched ${res.ok} propert${res.ok === 1 ? "y" : "ies"}. ${res.fail} skipped.`;
+      }
+    } catch {
+      msg = "Switched properties with issues.";
+    } finally {
+      // Force Quick Actions to close after mutations settle
+      setTimeout(() => figma.closePlugin(msg), 0);
+    }
     return;
   }
+
 
   if (command === "switch-ui") {
     figma.showUI(__html__, { width: 320, height: 428, themeColors: true });
     postSelectionState();
     bindUiHandlers();
+  }
+});
+
+figma.parameters.on("input", ({ query, key, result }) => {
+  if (key === "scope") {
+    const choices = ["(default)", "canvas position", "layers panel"];
+    result.setSuggestions(choices.filter(c => c.toLowerCase().includes(query.toLowerCase())));
+  }
+  if (key === "property") {
+    const choices = ["(all)", "opacity", "blend mode", "corner radius", "fill", "stroke", "effect", "layout grid", "export"];
+    result.setSuggestions(choices.filter(c => c.toLowerCase().includes(query.toLowerCase())));
   }
 });
 
