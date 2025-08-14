@@ -60,9 +60,20 @@ function swapConstraints(a: SceneNode, b: SceneNode) {
   if ("constraints" in a && "constraints" in b) { const t=a.constraints; a.constraints=b.constraints; b.constraints=t; }
 }
 
+function inComponentOrInstance(n: SceneNode): boolean {
+  for (let p = n.parent; p; p = (p as any).parent) {
+    if (!("type" in p)) break;
+    if (p.type === "INSTANCE" || p.type === "COMPONENT" || p.type === "COMPONENT_SET") return true;
+  }
+  return false;
+}
+
 function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" {
   const pair = requireTwo(); if (!pair) return "invalid";
   const [a,b] = pair;
+
+  if (inComponentOrInstance(a) || inComponentOrInstance(b)) return "blocked";
+
   let issues = 0;
 
   const absA = a.absoluteTransform, absB = b.absoluteTransform;
@@ -117,56 +128,98 @@ const swap: Record<PropKey, Swapper> = {
         return 1 as const;
       })()) || undefined,
 
-  fill: (a: SceneNode, b: SceneNode) =>
-    ("fills" in a && "fills" in b &&
-      ([(a as any).fills, (b as any).fills] = [(b as any).fills, (a as any).fills],
-       "fillStyleId" in a && "fillStyleId" in b
-         ? ([(a as any).fillStyleId, (b as any).fillStyleId] = [(b as any).fillStyleId, (a as any).fillStyleId], 1 as const)
-         : 1 as const)) || undefined,
+  fill: (a, b) =>
+  ("fills" in a && "fills" in b && (() => {
+    const A = a as any, B = b as any; const af = A.fills, bf = B.fills;
+    A.fills = cloneObjs(bf); B.fills = cloneObjs(af);
+    if ("fillStyleId" in A && "fillStyleId" in B) [A.fillStyleId, B.fillStyleId] = [B.fillStyleId, A.fillStyleId];
+    return 1 as const;
+  })()) || undefined,
 
-  stroke: (a: SceneNode, b: SceneNode) =>
-    ("strokes" in a && "strokes" in b &&
-      (() => {
-        const A = a as any, B = b as any;
-        [A.strokes, B.strokes] = [B.strokes, A.strokes];
-        if ("strokeStyleId" in A && "strokeStyleId" in B) [A.strokeStyleId, B.strokeStyleId] = [B.strokeStyleId, A.strokeStyleId];
-        if ("strokeWeight" in A && "strokeWeight" in B) [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight];
-        if ("strokeAlign" in A && "strokeAlign" in B) [A.strokeAlign, B.strokeAlign] = [B.strokeAlign, A.strokeAlign];
-        if ("dashPattern" in A && "dashPattern" in B) [A.dashPattern, B.dashPattern] = [B.dashPattern, A.dashPattern];
-        if ("strokeCap" in A && "strokeCap" in B) [A.strokeCap, B.strokeCap] = [B.strokeCap, A.strokeCap];
-        if ("strokeJoin" in A && "strokeJoin" in B) [A.strokeJoin, B.strokeJoin] = [B.strokeJoin, A.strokeJoin];
-        if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit];
-        return 1 as const;
-      })()) || undefined,
+stroke: (a, b) =>
+  ("strokes" in a && "strokes" in b && (() => {
+    const A = a as any, B = b as any; const as = A.strokes, bs = B.strokes;
+    A.strokes = cloneObjs(bs); B.strokes = cloneObjs(as);
+    if ("strokeStyleId" in A && "strokeStyleId" in B) [A.strokeStyleId, B.strokeStyleId] = [B.strokeStyleId, A.strokeStyleId];
+    if ("strokeWeight" in A && "strokeWeight" in B) [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight];
+    if ("strokeAlign" in A && "strokeAlign" in B) [A.strokeAlign, B.strokeAlign] = [B.strokeAlign, A.strokeAlign];
+    if ("dashPattern" in A && "dashPattern" in B) [A.dashPattern, B.dashPattern] = [B.dashPattern, A.dashPattern];
+    if ("strokeCap" in A && "strokeCap" in B) [A.strokeCap, B.strokeCap] = [B.strokeCap, A.strokeCap];
+    if ("strokeJoin" in A && "strokeJoin" in B) [A.strokeJoin, B.strokeJoin] = [B.strokeJoin, A.strokeJoin];
+    if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit];
+    return 1 as const;
+  })()) || undefined,
 
-  effect: (a: SceneNode, b: SceneNode) =>
-    ("effects" in a && "effects" in b &&
-      ([(a as any).effects, (b as any).effects] = [(b as any).effects, (a as any).effects],
-       "effectStyleId" in a && "effectStyleId" in b
-         ? ([(a as any).effectStyleId, (b as any).effectStyleId] = [(b as any).effectStyleId, (a as any).effectStyleId], 1 as const)
-         : 1 as const)) || undefined,
+effect: (a, b) =>
+  ("effects" in a && "effects" in b && (() => {
+    const A = a as any, B = b as any; const ae = A.effects, be = B.effects;
+    A.effects = cloneObjs(be); B.effects = cloneObjs(ae);
+    if ("effectStyleId" in A && "effectStyleId" in B) [A.effectStyleId, B.effectStyleId] = [B.effectStyleId, A.effectStyleId];
+    return 1 as const;
+  })()) || undefined,
 
-  "layout grid": (a: SceneNode, b: SceneNode) =>
-    ("layoutGrids" in a && "layoutGrids" in b &&
-      ([(a as any).layoutGrids, (b as any).layoutGrids] = [(b as any).layoutGrids, (a as any).layoutGrids],
-       "gridStyleId" in a && "gridStyleId" in b
-         ? ([(a as any).gridStyleId, (b as any).gridStyleId] = [(b as any).gridStyleId, (a as any).gridStyleId], 1 as const)
-         : 1 as const)) || undefined,
+"layout grid": (a, b) =>
+  ("layoutGrids" in a && "layoutGrids" in b && (() => {
+    const A = a as any, B = b as any; const ag = A.layoutGrids, bg = B.layoutGrids;
+    A.layoutGrids = cloneObjs(bg); B.layoutGrids = cloneObjs(ag);
+    if ("gridStyleId" in A && "gridStyleId" in B) [A.gridStyleId, B.gridStyleId] = [B.gridStyleId, A.gridStyleId];
+    return 1 as const;
+  })()) || undefined,
 
-  export: (a: SceneNode, b: SceneNode) =>
-    ("exportSettings" in a && "exportSettings" in b &&
-      ([(a as any).exportSettings, (b as any).exportSettings] = [(b as any).exportSettings, (a as any).exportSettings], 1 as const)) || undefined,
+export: (a, b) =>
+  ("exportSettings" in a && "exportSettings" in b && (() => {
+    const A = a as any, B = b as any; const ae = A.exportSettings, be = B.exportSettings;
+    A.exportSettings = cloneObjs(be); B.exportSettings = cloneObjs(ae);
+    return 1 as const;
+  })()) || undefined,
+
+"variable mode": async (a, b) => {
+  const modesA = (a as any).resolvedVariableModes as Record<string,string>|undefined;
+  const modesB = (b as any).resolvedVariableModes as Record<string,string>|undefined;
+  if (!modesA && !modesB) return undefined;
+  const ids = new Set([...(Object.keys(modesA||{})), ...(Object.keys(modesB||{}))]);
+  for (const colId of ids) {
+    const coll = await figma.variables.getVariableCollectionByIdAsync(colId);
+    if (!coll) continue;
+    const modeA = modesA?.[colId];
+    const modeB = modesB?.[colId];
+    if (modeB) (a as any).setExplicitVariableModeForCollection(coll, modeB);
+    else (a as any).clearExplicitVariableModeForCollection(coll);
+    if (modeA) (b as any).setExplicitVariableModeForCollection(coll, modeA);
+    else (b as any).clearExplicitVariableModeForCollection(coll);
+  }
+  return 1 as const;
+},
 };
 
+function supports(k: PropKey, n: SceneNode): boolean {
+  switch (k) {
+    case "opacity": return "opacity" in n;
+    case "blend mode": return "blendMode" in n;
+    case "corner radius": return "cornerRadius" in n || "topLeftRadius" in (n as any);
+    case "fill": return "fills" in n;
+    case "stroke": return "strokes" in n;
+    case "effect": return "effects" in n;
+    case "layout grid": return "layoutGrids" in n;
+    case "export": return "exportSettings" in n;
+    case "variable mode": return "setExplicitVariableModeForCollection" in (n as any);
+  }
+}
 
-function doSwitchProperties(prop: PropKey | "all") {
+async function doSwitchProperties(prop: PropKey | "all") {
   const pair = requireTwo(); if (!pair) return "invalid" as const;
   const [a,b] = pair;
-  const keys: PropKey[] = ["opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export"];
-  let tried=0, ok=0;
-  const run = (k: PropKey) => { tried++; ok += swap[k](a,b) ? 1 : 0; };
-  if (prop==="all") keys.forEach(run); else run(prop);
-  return { tried, ok, fail: tried-ok };
+  const keys: PropKey[] = ["opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export","variable mode"];
+  const todo = (prop === "all" ? keys : [prop]).filter(k => supports(k,a) && supports(k,b));
+
+  let ok=0, fail=0; const skipped = (prop === "all" ? keys.length : 1) - todo.length;
+  for (const k of todo) {
+    try {
+      const r = await (swap[k] as any)(a,b);
+      if (r) ok++; else fail++;
+    } catch { fail++; }
+  }
+  return { ok, fail, skipped };
 }
 
 // ---- run + parameters
@@ -176,14 +229,14 @@ figma.parameters.on("input", ({ query, key, result }) => {
     const choices = ["(default)","canvas position","layers panel"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else if (key === "property") {
-    const choices = ["(all)","opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export"];
+    const choices = ["(all)","opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export","variable mode"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else {
-    result.setSuggestions([]); // explicit
+    result.setSuggestions([]);
   }
 });
 
-figma.on("run", ({ command, parameters }) => {
+figma.on("run", async ({ command, parameters }) => {
   if (command === "switch-layers") {
     const scopeRaw = toKey(String(parameters?.scope ?? "(default)"));
     const scope: "default"|"canvas"|"panel" =
@@ -205,24 +258,36 @@ figma.on("run", ({ command, parameters }) => {
     const map: Record<string, PropKey | "all"> = {
       "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
       "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
-      "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export"
+      "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export","variable mode":"variable mode"
     };
 
     let msg = "Switched properties.";
     try {
-      const res = doSwitchProperties(map[p] ?? "all");
+      const res = await doSwitchProperties(map[p] ?? "all");
       if (res === "invalid") msg = "Select exactly two layers.";
-      else if (res.ok === 0) msg = "No eligible properties to switch.";
-      else if (res.fail > 0) msg = `Switched ${res.ok} propert${res.ok===1?"y":"ies"}. ${res.fail} skipped.`;
+      else if (res.ok === 0 && res.fail === 0) msg = "No eligible properties to switch.";
+      else if (res.fail === 0) msg = `Switched ${res.ok}. ${res.skipped} ineligible.`;
+      else msg = `Switched ${res.ok}. ${res.fail} failed. ${res.skipped} ineligible.`;
     } catch { msg = "Switched properties with issues."; }
     setTimeout(() => figma.closePlugin(msg), 0);
     return;
+  }
+
+  async function loadUiOptions(): Promise<UiOptions|null> {
+    try { return await figma.clientStorage.getAsync("switcheroo.ui.options"); } catch { return null; }
+  }
+  async function saveUiOptions(opts: UiOptions) {
+    try { await figma.clientStorage.setAsync("switcheroo.ui.options", opts); } catch {}
   }
 
   if (command === "switch-ui") {
     figma.showUI(__html__, { width: 320, height: 428, themeColors: true });
     postSelectionState();
     bindUiHandlers();
+    (async () => {
+      const saved = await loadUiOptions();
+      figma.ui.postMessage({ type:"LOAD_OPTIONS", payload: saved });
+    })();
   }
 });
 
@@ -260,26 +325,39 @@ function postSelectionState() {
 
 function bindUiHandlers() {
   figma.on("selectionchange", postSelectionState);
-  figma.ui.onmessage = (msg: UiMessage) => {
-    if (msg.type === "REQUEST_SELECTION_STATE") { postSelectionState(); return; }
-    if (msg.type === "RUN_SWAP") {
-      const opts = msg.payload.options;
-      if (!opts) { figma.closePlugin(); return; }
+  figma.ui.onmessage = async (msg: UiMessage) => {
+  if (msg.type === "REQUEST_SELECTION_STATE") { postSelectionState(); return; }
 
-      const pair = requireTwo();
-      if (!pair) { figma.ui?.postMessage({ type:"DONE", payload:{ ok:false }}); return; }
+  if (msg.type === "RUN_SWAP") {
+    const opts = msg.payload.options;
+    if (!opts) { figma.closePlugin(); return; }
 
-      // TODO: read opts to decide which swaps to run (re-use helpers above)
-      // Example:
-      // if (opts.swapInLayers) doSwitchLayers("panel");
-      // if (opts.position.rotation || opts.position.x || opts.position.y || opts.position.constraints)
-      //   doSwitchLayers("canvas");
-      // map appearance/props -> doSwitchProperties(...) with chosen keys
+    await saveUiOptions(opts);
 
-      figma.ui.postMessage({ type:"DONE", payload:{ ok:true }});
-      figma.notify("Swap complete.");
-      return;
+    if (opts.swapInLayers) doSwitchLayers("panel");
+
+    if (opts.position.x || opts.position.y || opts.position.rotation || opts.position.constraints) {
+      doSwitchLayers("canvas");
     }
-    if (msg.type === "CLOSE") figma.closePlugin();
-  };
+
+    const props: PropKey[] = [];
+    if (opts.appearance.opacity) props.push("opacity");
+    if (opts.appearance.blendMode) props.push("blend mode");
+    if (opts.appearance.cornerRadius) props.push("corner radius");
+    if (opts.props.fill) props.push("fill");
+    if (opts.props.stroke) props.push("stroke");
+    if (opts.props.effect) props.push("effect");
+    if (opts.props.layoutGrid) props.push("layout grid");
+    if (opts.props.export) props.push("export");
+    if (opts.appearance.variableMode) props.push("variable mode");
+
+    for (const p of props) await doSwitchProperties(p);
+
+    figma.ui.postMessage({ type:"DONE", payload:{ ok:true }});
+    figma.notify("Swap complete.");
+    return;
+  }
+
+  if (msg.type === "CLOSE") figma.closePlugin();
+};
 }

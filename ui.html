@@ -740,6 +740,21 @@
         }
 
         // Click-to-toggle on visual checkbox
+        // Also allow clicking anywhere on the row to toggle the checkbox
+        document.addEventListener("click", (ev) => {
+            const row = (ev.target && (ev.target as HTMLElement).closest?.("[data-row]")) as HTMLElement | null;
+            if (!row) return;
+            const input = row.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+            const box = row.querySelector(".checkbox") as HTMLElement | null;
+            if (!input || input.disabled) return;
+            // If the click was on the visual box, your handler above already runs.
+            // If not, toggle here:
+            if (!box || !box.contains(ev.target as Node)) {
+                input.checked = !input.checked;
+                box?.classList.toggle("checked", input.checked);
+            }
+        });
+
         $$(".checkbox").forEach(box => {
             box.addEventListener("click", (e) => {
                 const input = box.querySelector('input[type="checkbox"]');
@@ -816,7 +831,7 @@
 
         // Buttons
         $("#cancel")?.addEventListener("click", () => {
-            parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options: null } } }, "*");
+            parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
         });
         $("#runSwap")?.addEventListener("click", () => {
             parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options: readOptions() } } }, "*");
@@ -826,9 +841,46 @@
         window.onmessage = (e) => {
             const msg = e.data && e.data.pluginMessage;
             if (!msg) return;
-            if (msg.type === "SELECTION_STATE") applySelectionState(msg.payload);
-            if (msg.type === "DONE") parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
-        };
+
+            if (msg.type === "SELECTION_STATE") {
+                applySelectionState(msg.payload);
+                return;
+            }
+
+            if (msg.type === "LOAD_OPTIONS" && msg.payload) {
+                const o = msg.payload;
+
+                // toggle the big switch
+                setSwapToggle(!!o.swapInLayers);
+
+                // position
+                setChecked("pos-x",          !!o.position?.x);
+                setChecked("pos-y",          !!o.position?.y);
+                setChecked("pos-rotation",   !!o.position?.rotation);
+                setChecked("pos-constraints",!!o.position?.constraints);
+                setChecked("pos-ignoreLayout",!!o.position?.ignoreLayout);
+
+                // appearance
+                setChecked("opacity",        !!o.appearance?.opacity);
+                setChecked("blendMode",      !!o.appearance?.blendMode);
+                setChecked("cornerRadius",   !!o.appearance?.cornerRadius);
+                setChecked("variableMode",   !!o.appearance?.variableMode);
+
+                // properties
+                setChecked("fill",           !!o.props?.fill);
+                setChecked("stroke",         !!o.props?.stroke);
+                setChecked("effect",         !!o.props?.effect);
+                setChecked("layoutGrid",     !!o.props?.layoutGrid);
+                setChecked("export",         !!o.props?.export);
+                return;
+            }
+
+            if (msg.type === "DONE") {
+                parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
+                return;
+            }
+            };
+
 
         // Request initial selection state
         parent.postMessage({ pluginMessage: { type: "REQUEST_SELECTION_STATE" } }, "*");
