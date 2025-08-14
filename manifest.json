@@ -3,8 +3,6 @@
   "id": "1535515452609381389",
   "api": "1.0.0",
   "main": "code.js",
-  "capabilities": [],
-  "enableProposedApi": false,
   "documentAccess": "dynamic-page",
   "editorType": ["figma"],
   "ui": "ui.html",
@@ -12,6 +10,7 @@
     {
       "name": "Switch Layers",
       "command": "switch-layers",
+      "parameterOnly": false,
       "parameters": [
         {
           "key": "scope",
@@ -24,6 +23,7 @@
     {
       "name": "Switch Properties",
       "command": "switch-properties",
+      "parameterOnly": false,
       "parameters": [
         {
           "key": "property",
