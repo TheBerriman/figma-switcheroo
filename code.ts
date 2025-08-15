@@ -131,6 +131,17 @@ const deepEqual = (a: any, b: any): boolean => {
   return false;
 };
 
+async function setStyleIdAsync(node: SceneNode, kind: 'fill'|'effect'|'grid', id?: string) {
+  const n = node as any;
+  try {
+    if (kind === 'fill'   && 'setFillStyleIdAsync'   in n) return await n.setFillStyleIdAsync(id ?? '');
+    if (kind === 'effect' && 'setEffectStyleIdAsync' in n) return await n.setEffectStyleIdAsync(id ?? '');
+    if (kind === 'grid'   && 'setGridStyleIdAsync'   in n) return await n.setGridStyleIdAsync(id ?? '');
+  } catch (e) {
+    throw new Error(`[setStyleIdAsync:${kind}] ${(e as Error).message}`);
+  }
+}
+
 const isExportDefault = (n: any): boolean =>
   "exportSettings" in n && (!n.exportSettings || n.exportSettings.length === 0);
 
@@ -144,66 +155,84 @@ const isCornerDefault = (n: any): boolean => {
 
 const swap: Record<PropKey, Swapper> = {
   opacity: (a: SceneNode, b: SceneNode) =>
-    ("opacity" in a && "opacity" in b && ([a.opacity, b.opacity] = [b.opacity, a.opacity], 1)) || undefined,
+    ("opacity" in a && "opacity" in b &&
+      (a.opacity === b.opacity
+        ? undefined
+        : ([a.opacity, b.opacity] = [b.opacity, a.opacity], 1))) || undefined,
 
   "blend mode": (a: SceneNode, b: SceneNode) =>
-    ("blendMode" in a && "blendMode" in b &&
-      ([(a as any).blendMode, (b as any).blendMode] = [(b as any).blendMode, (a as any).blendMode], 1)) || undefined,
+    ("blendMode" in a && "blendMode" in b && (() => {
+      const A = a as any, B = b as any;
+      if (A.blendMode === B.blendMode) return undefined;
+      [A.blendMode, B.blendMode] = [B.blendMode, A.blendMode];
+      return 1 as const;
+    })()) || undefined,
 
   "corner radius": (a: SceneNode, b: SceneNode) => (
-    ("cornerRadius" in a && "cornerRadius" in b) && (() => {
-      const A = a as any, B = b as any;
+    ("cornerRadius" in a && "cornerRadius" in b) || ("topLeftRadius" in (a as any) && "topLeftRadius" in (b as any))
+  ) && (() => {
+    const A = a as any, B = b as any;
 
-      const equalPerCorner =
-        ("topLeftRadius" in A && "topLeftRadius" in B) &&
-        A.topLeftRadius === B.topLeftRadius &&
-        A.topRightRadius === B.topRightRadius &&
-        A.bottomLeftRadius === B.bottomLeftRadius &&
-        A.bottomRightRadius === B.bottomRightRadius &&
-        ((!("cornerSmoothing" in A) || !("cornerSmoothing" in B)) || A.cornerSmoothing === B.cornerSmoothing);
+    // equality check across both modes
+    const sameUnified = ("cornerRadius" in A && "cornerRadius" in B) && A.cornerRadius === B.cornerRadius;
+    const samePerCorner =
+      ("topLeftRadius" in A && "topLeftRadius" in B) &&
+      A.topLeftRadius === B.topLeftRadius &&
+      A.topRightRadius === B.topRightRadius &&
+      A.bottomLeftRadius === B.bottomLeftRadius &&
+      A.bottomRightRadius === B.bottomRightRadius;
+    const sameSmoothing = (!("cornerSmoothing" in A) && !("cornerSmoothing" in B)) ||
+                          (("cornerSmoothing" in A && "cornerSmoothing" in B) && A.cornerSmoothing === B.cornerSmoothing);
 
-      const equalUnified =
-        !("topLeftRadius" in A) && !("topLeftRadius" in B) &&
-        A.cornerRadius === B.cornerRadius &&
-        ((!("cornerSmoothing" in A) || !("cornerSmoothing" in B)) || A.cornerSmoothing === B.cornerSmoothing);
+    if ((sameUnified || samePerCorner) && sameSmoothing) return undefined;
 
-      if (equalPerCorner || equalUnified) return undefined;
-      if (isCornerDefault(A) && isCornerDefault(B)) return undefined;
-
-      if ("topLeftRadius" in A && "topLeftRadius" in B) {
-        [A.topLeftRadius,    B.topLeftRadius]    = [B.topLeftRadius,    A.topLeftRadius];
-        [A.topRightRadius,   B.topRightRadius]   = [B.topRightRadius,   A.topRightRadius];
-        [A.bottomLeftRadius, B.bottomLeftRadius] = [B.bottomLeftRadius, A.bottomLeftRadius];
-        [A.bottomRightRadius,B.bottomRightRadius]= [B.bottomRightRadius,A.bottomRightRadius];
-        if ("cornerSmoothing" in A && "cornerSmoothing" in B)
-          [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
-        return 1;
-      }
-
-      [A.cornerRadius, B.cornerRadius] = [B.cornerRadius, A.cornerRadius];
+    // perform swap preserving whichever mode each node currently uses
+    if ("topLeftRadius" in A && "topLeftRadius" in B) {
+      [A.topLeftRadius,    B.topLeftRadius   ] = [B.topLeftRadius,    A.topLeftRadius   ];
+      [A.topRightRadius,   B.topRightRadius  ] = [B.topRightRadius,   A.topRightRadius  ];
+      [A.bottomLeftRadius, B.bottomLeftRadius] = [B.bottomLeftRadius, A.bottomLeftRadius];
+      [A.bottomRightRadius,B.bottomRightRadius]=[B.bottomRightRadius, A.bottomRightRadius];
       if ("cornerSmoothing" in A && "cornerSmoothing" in B)
         [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
       return 1;
-    })()
-  ) || undefined,
+    }
 
-  fill: (a, b) =>
-    ("fills" in a && "fills" in b && (() => {
-      const A = a as any, B = b as any; const af = A.fills, bf = B.fills;
-      A.fills = cloneObjs(bf); B.fills = cloneObjs(af);
-      if ("fillStyleId" in A && "fillStyleId" in B) [A.fillStyleId, B.fillStyleId] = [B.fillStyleId, A.fillStyleId];
+    [A.cornerRadius, B.cornerRadius] = [B.cornerRadius, A.cornerRadius];
+    if ("cornerSmoothing" in A && "cornerSmoothing" in B)
+      [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
+    return 1;
+  })() || undefined,
+
+  fill: async (a, b) =>
+    ("fills" in a && "fills" in b && (async () => {
+      const A = a as any, B = b as any;
+      const af = A.fills ?? [], bf = B.fills ?? [];
+      const aStyle = "fillStyleId" in A ? A.fillStyleId : undefined;
+      const bStyle = "fillStyleId" in B ? B.fillStyleId : undefined;
+
+      const same = deepEqual(af, bf) && (aStyle === bStyle);
+      if (same) return undefined;
+
+      // swap paints first
+      A.fills = cloneObjs(bf);
+      B.fills = cloneObjs(af);
+
+      // then swap linked styles using async API
+      await setStyleIdAsync(A, "fill", bStyle);
+      await setStyleIdAsync(B, "fill", aStyle);
       return 1 as const;
     })()) || undefined,
+
 
   stroke: async (a, b) => (
     "strokes" in a && "strokes" in b && (async () => {
       const A = a as any, B = b as any;
 
-      const samePaints = deepEqual(A.strokes, B.strokes);
+      const samePaints = deepEqual(A.strokes ?? [], B.strokes ?? []);
       const sameBasic =
         A.strokeWeight === B.strokeWeight &&
         A.strokeAlign === B.strokeAlign &&
-        deepEqual(A.dashPattern, B.dashPattern) &&
+        deepEqual(A.dashPattern ?? [], B.dashPattern ?? []) &&
         A.strokeCap === B.strokeCap &&
         A.strokeJoin === B.strokeJoin &&
         A.strokeMiterLimit === B.strokeMiterLimit;
@@ -215,65 +244,78 @@ const swap: Record<PropKey, Swapper> = {
         A.strokeBottomWeight === B.strokeBottomWeight &&
         A.strokeLeftWeight === B.strokeLeftWeight;
 
-      const sameStyle =
-        ("strokeStyleId" in A && "strokeStyleId" in B) ?
-          A.strokeStyleId === B.strokeStyleId : true;
+      if (samePaints && sameBasic && (!hasSidesA || !hasSidesB || sameSides)) return undefined;
 
-      if (samePaints && sameBasic && (hasSidesA === hasSidesB ? sameSides : true) && sameStyle)
-        return undefined;
-
+      // swap paints first to satisfy eligibility for style/align settings
       const as = A.strokes, bs = B.strokes;
-      A.strokes = cloneObjs(bs);
-      B.strokes = cloneObjs(as);
+      A.strokes = cloneObjs(bs); B.strokes = cloneObjs(as);
 
+      // swap style id if present
+      try { if ("strokeStyleId" in A && "strokeStyleId" in B) [A.strokeStyleId, B.strokeStyleId] = [B.strokeStyleId, A.strokeStyleId]; } catch {}
+
+      // then swap basic stroke props
       try {
-        if ("strokeStyleId" in A && "strokeStyleId" in B) {
-          const aId = A.strokeStyleId || "";
-          const bId = B.strokeStyleId || "";
-          if (typeof A.setStrokeStyleIdAsync === "function" && typeof B.setStrokeStyleIdAsync === "function") {
-            await Promise.all([
-              A.setStrokeStyleIdAsync(bId),
-              B.setStrokeStyleIdAsync(aId),
-            ]);
-          } else {
-            [A.strokeStyleId, B.strokeStyleId] = [bId, aId];
+        if ("strokeWeight" in A && "strokeWeight" in B) {
+          if (typeof A.strokeWeight === "number" && typeof B.strokeWeight === "number") {
+            [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight];
           }
+          // else one or both are figma.mixed → skip swapping strokeWeight directly,
+          // rely on per-side block below to handle it
         }
       } catch (e) { }
+      try { if ("strokeAlign"  in A && "strokeAlign"  in B) [A.strokeAlign,  B.strokeAlign ] = [B.strokeAlign,  A.strokeAlign ]; } catch {}
+      try { if ("dashPattern"  in A && "dashPattern"  in B) [A.dashPattern,  B.dashPattern ] = [B.dashPattern,  A.dashPattern ]; } catch {}
+      try { if ("strokeCap"    in A && "strokeCap"    in B) [A.strokeCap,    B.strokeCap   ] = [B.strokeCap,    A.strokeCap   ]; } catch {}
+      try { if ("strokeJoin"   in A && "strokeJoin"   in B) [A.strokeJoin,   B.strokeJoin  ] = [B.strokeJoin,   A.strokeJoin  ]; } catch {}
+      try { if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit]; } catch {}
 
-      try { if ("strokeWeight" in A && "strokeWeight" in B) [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight]; } catch (e) { }
-      try { if ("strokeAlign"  in A && "strokeAlign"  in B) [A.strokeAlign,  B.strokeAlign ] = [B.strokeAlign,  A.strokeAlign ]; } catch (e) { }
-      try { if ("dashPattern"  in A && "dashPattern"  in B) [A.dashPattern,  B.dashPattern ] = [B.dashPattern,  A.dashPattern ]; } catch (e) { }
-      try { if ("strokeCap"    in A && "strokeCap"    in B) [A.strokeCap,    B.strokeCap   ] = [B.strokeCap,    A.strokeCap   ]; } catch (e) { }
-      try { if ("strokeJoin"   in A && "strokeJoin"   in B) [A.strokeJoin,   B.strokeJoin  ] = [B.strokeJoin,   A.strokeJoin  ]; } catch (e) { }
-      try { if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit]; } catch (e) { }
-
+      // finally per-side weights if both support them
       if (hasSidesA && hasSidesB) {
         try {
           [A.strokeTopWeight,    B.strokeTopWeight   ] = [B.strokeTopWeight,    A.strokeTopWeight   ];
           [A.strokeRightWeight,  B.strokeRightWeight ] = [B.strokeRightWeight,  A.strokeRightWeight ];
           [A.strokeBottomWeight, B.strokeBottomWeight] = [B.strokeBottomWeight, A.strokeBottomWeight];
           [A.strokeLeftWeight,   B.strokeLeftWeight  ] = [B.strokeLeftWeight,   A.strokeLeftWeight  ];
-        } catch (e) { }
+        } catch {}
       }
 
       return 1;
     })()
   ) || undefined,
 
-  effect: (a, b) =>
-    ("effects" in a && "effects" in b && (() => {
-      const A = a as any, B = b as any; const ae = A.effects, be = B.effects;
-      A.effects = cloneObjs(be); B.effects = cloneObjs(ae);
-      if ("effectStyleId" in A && "effectStyleId" in B) [A.effectStyleId, B.effectStyleId] = [B.effectStyleId, A.effectStyleId];
+  effect: async (a, b) =>
+    ("effects" in a && "effects" in b && (async () => {
+      const A = a as any, B = b as any;
+      const ae = A.effects ?? [], be = B.effects ?? [];
+      const aStyle = "effectStyleId" in A ? A.effectStyleId : undefined;
+      const bStyle = "effectStyleId" in B ? B.effectStyleId : undefined;
+
+      const same = deepEqual(ae, be) && (aStyle === bStyle);
+      if (same) return undefined;
+
+      A.effects = cloneObjs(be);
+      B.effects = cloneObjs(ae);
+
+      await setStyleIdAsync(A, "effect", bStyle);
+      await setStyleIdAsync(B, "effect", aStyle);
       return 1 as const;
     })()) || undefined,
 
-  "layout grid": (a, b) =>
-    ("layoutGrids" in a && "layoutGrids" in b && (() => {
-      const A = a as any, B = b as any; const ag = A.layoutGrids, bg = B.layoutGrids;
-      A.layoutGrids = cloneObjs(bg); B.layoutGrids = cloneObjs(ag);
-      if ("gridStyleId" in A && "gridStyleId" in B) [A.gridStyleId, B.gridStyleId] = [B.gridStyleId, A.gridStyleId];
+  "layout grid": async (a, b) =>
+    ("layoutGrids" in a && "layoutGrids" in b && (async () => {
+      const A = a as any, B = b as any;
+      const ag = A.layoutGrids ?? [], bg = B.layoutGrids ?? [];
+      const aStyle = "gridStyleId" in A ? A.gridStyleId : undefined;
+      const bStyle = "gridStyleId" in B ? B.gridStyleId : undefined;
+
+      const same = deepEqual(ag, bg) && (aStyle === bStyle);
+      if (same) return undefined;
+
+      A.layoutGrids = cloneObjs(bg);
+      B.layoutGrids = cloneObjs(ag);
+
+      await setStyleIdAsync(A, "grid", bStyle);
+      await setStyleIdAsync(B, "grid", aStyle);
       return 1 as const;
     })()) || undefined,
 
@@ -282,13 +324,11 @@ const swap: Record<PropKey, Swapper> = {
       const A = a as any, B = b as any;
       const ae = A.exportSettings ?? [];
       const be = B.exportSettings ?? [];
-
+      if (deepEqual(ae, be)) return undefined;        // identical or both empty
       if (ae.length === 0 && be.length === 0) return undefined;
-      if (deepEqual(ae, be)) return undefined;
-
       A.exportSettings = cloneObjs(be);
       B.exportSettings = cloneObjs(ae);
-      return 1;
+      return 1 as const;
     })()
   ) || undefined,
 
@@ -296,7 +336,17 @@ const swap: Record<PropKey, Swapper> = {
     const modesA = (a as any).resolvedVariableModes as Record<string,string>|undefined;
     const modesB = (b as any).resolvedVariableModes as Record<string,string>|undefined;
     if (!modesA && !modesB) return undefined;
+
     const ids = new Set([...(Object.keys(modesA||{})), ...(Object.keys(modesB||{}))]);
+
+    // equality check across all referenced collections
+    let allSame = true;
+    for (const colId of ids) {
+      const ma = modesA?.[colId]; const mb = modesB?.[colId];
+      if (ma !== mb) { allSame = false; break; }
+    }
+    if (allSame) return undefined;
+
     for (const colId of ids) {
       const coll = await figma.variables.getVariableCollectionByIdAsync(colId);
       if (!coll) continue;
