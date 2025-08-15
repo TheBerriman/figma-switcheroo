@@ -4,9 +4,6 @@ type T2 = Transform;
 const IDENTITY: T2 = [[1,0,0],[0,1,0]];
 const toKey = (s: string) => s.trim().toLowerCase();
 
-const DEBUG = true;
-const debug = (...a: any[]) => { if (DEBUG) console.log("[switcheroo]", ...a); };
-
 function requireTwo(): [SceneNode, SceneNode] | undefined {
   const sel = figma.currentPage.selection.filter((n): n is SceneNode => (n as any).visible !== undefined);
   return sel.length === 2 ? [sel[0], sel[1]] : undefined;
@@ -310,11 +307,6 @@ const swap: Record<PropKey, Swapper> = {
       if (modeA) (b as any).setExplicitVariableModeForCollection(coll, modeA);
       else (b as any).clearExplicitVariableModeForCollection(coll);
     }
-    if (DEBUG) {
-      const aHas = !!modesA && Object.keys(modesA).length>0;
-      const bHas = !!modesB && Object.keys(modesB).length>0;
-      debug("variable mode swap", { aHas, bHas, ids: Array.from(ids) });
-    }
     return 1 as const;
   },
 };
@@ -334,38 +326,45 @@ function supports(k: PropKey, n: SceneNode): boolean {
 }
 
 async function doSwitchProperties(prop: PropKey | "all") {
-  const pair = requireTwo(); if (!pair) return "invalid" as const;
-  const [a,b] = pair;
-
-  // Ensure variable mode runs last when "(all)"
+  const pair = requireTwo();
+  if (!pair) return "invalid" as const;
+  const [a, b] = pair;
   const keys: PropKey[] = ["opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export","variable mode"];
   const list = (prop === "all") ? keys : [prop];
-
   const ok: PropKey[] = [];
   const failed: { key: PropKey; err: string }[] = [];
   const ineligible: { key: PropKey; reason: string }[] = [];
 
   for (const k of list) {
-    // capability check
-    if (!(supports(k,a) && supports(k,b))) {
+    if (!(supports(k, a) && supports(k, b))) {
       ineligible.push({ key: k, reason: "unsupported on one or both nodes" });
       continue;
     }
+    // Insert debug logging
+    if (k === "corner radius") {
+      console.log("[swap-debug] cornerRadius", (a as any).cornerRadius, (b as any).cornerRadius);
+    } else if (k === "fill") {
+      console.log("[swap-debug] fill", JSON.stringify((a as any).fills), JSON.stringify((b as any).fills));
+    } else if (k === "stroke") {
+      console.log("[swap-debug] stroke paints", JSON.stringify((a as any).strokes), JSON.stringify((b as any).strokes));
+    } else if (k === "effect") {
+      console.log("[swap-debug] effect", JSON.stringify((a as any).effects), JSON.stringify((b as any).effects));
+    } else if (k === "layout grid") {
+      console.log("[swap-debug] layoutGrids", JSON.stringify((a as any).layoutGrids), JSON.stringify((b as any).layoutGrids));
+    } else if (k === "export") {
+      console.log("[swap-debug] exportSettings", JSON.stringify((a as any).exportSettings), JSON.stringify((b as any).exportSettings));
+    }
     try {
-      const r = await (swap[k] as any)(a,b);
+      const r = await (swap[k] as any)(a, b);
       if (r) ok.push(k);
-      else {
-        // treat “no-op” as ineligible, not failure
-        ineligible.push({ key: k, reason: "no-op (identical or empty values)" });
-      }
-    } catch (e:any) {
+      else ineligible.push({ key: k, reason: "no-op (identical or empty values)" });
+    } catch (e: any) {
       failed.push({ key: k, err: String(e?.message || e) });
     }
   }
 
-  if (DEBUG) {
-    debug("props result", { ok, failed, ineligible });
-  }
+  console.log("[swap-debug] props result", { ok, failed, ineligible });
+  
   return { okCount: ok.length, failCount: failed.length, skipCount: ineligible.length, ok, failed, ineligible };
 }
 
@@ -474,14 +473,12 @@ function postSelectionState() {
 function bindUiHandlers() {
   figma.on("selectionchange", postSelectionState);
   figma.ui.onmessage = async (msg: UiMessage) => {
-    if (DEBUG) debug("ui msg", msg);
     if (msg.type === "REQUEST_SELECTION_STATE") { postSelectionState(); return; }
 
     if (msg.type === "RUN_SWAP") {
       const opts = msg.payload.options;
       if (!opts) { figma.closePlugin(); return; }
       
-      if (DEBUG) debug("RUN_SWAP options", opts);
       await saveUiOptions(opts);
 
       if (opts.swapInLayers) doSwitchLayers("panel");

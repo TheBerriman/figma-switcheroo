@@ -6,7 +6,7 @@
     <style>
         /* Import Inter font */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@450&display=swap');
-        
+
         /* CSS Reset */
         * {
             box-sizing: border-box;
@@ -715,8 +715,6 @@
     </div>
 
     <script>
-        console.log("[switcheroo-ui] script alive");
-
         const $ = (s, r = document) => r.querySelector(s);
         const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
@@ -855,7 +853,6 @@
                 export: read("export")
             }
             };
-            console.log("[switcheroo-ui] sending options", options);
             parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options } } }, "*");
         });
 
