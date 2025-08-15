@@ -715,98 +715,102 @@
     </div>
 
     <script>
-  const $ = (s, r=document) => r.querySelector(s);
-  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+        console.log("[switcheroo-ui] script alive");
 
-  // Make whole rows toggle their checkbox
-  document.addEventListener("click", (ev) => {
-    const row = ev.target.closest("[data-row]");
-    if (!row) return;
-    const input = row.querySelector("input[type='checkbox']");
-    if (input && !input.disabled && ev.target !== input) { input.checked = !input.checked; }
-  });
 
-  // Ask plugin for selection capabilities on open
-  parent.postMessage({ pluginMessage: { type: "REQUEST_SELECTION_STATE" } }, "*");
+        const $ = (s, r=document) => r.querySelector(s);
+        const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
 
-  // Receive selection caps and saved options
-  onmessage = (e) => {
-    const msg = e.data.pluginMessage;
-    if (!msg) return;
+        // Make whole rows toggle their checkbox
+        document.addEventListener("click", (ev) => {
+            const row = ev.target.closest("[data-row]");
+            if (!row) return;
+            const input = row.querySelector("input[type='checkbox']");
+            if (input && !input.disabled && ev.target !== input) { input.checked = !input.checked; }
+        });
 
-    if (msg.type === "SELECTION_STATE") {
-      const s = msg.payload || {};
-      const map = {
-        "[data-key='pos-constraints']": s.canConstraints,
-        "[data-key='cornerRadius']": s.canCorner,
-        "[data-key='fill']": s.canFill,
-        "[data-key='stroke']": s.canStroke,
-        "[data-key='effect']": s.canEffect,
-        "[data-key='layoutGrid']": s.canGrid,
-        "[data-key='export']": s.canExport
-      };
-      for (const sel in map) $$(sel).forEach(el => { el.disabled = !map[sel]; });
-    }
+        // Ask plugin for selection capabilities on open
+        parent.postMessage({ pluginMessage: { type: "REQUEST_SELECTION_STATE" } }, "*");
 
-    if (msg.type === "LOAD_OPTIONS" && msg.payload) {
-      const set = (k, v) => { const el = document.querySelector(`[data-key='${k}']`); if (el) el.checked = !!v; };
-      const o = msg.payload;
-      set("swapInLayers", o.swapInLayers);
+        // Receive selection caps and saved options
+        onmessage = (e) => {
+            const msg = e.data.pluginMessage;
+            if (!msg) return;
 
-      set("pos-x", o.position && o.position.x);
-      set("pos-y", o.position && o.position.y);
-      set("pos-rotation", o.position && o.position.rotation);
-      set("pos-constraints", o.position && o.position.constraints);
-      set("pos-ignoreLayout", o.position && o.position.ignoreLayout);
+            if (msg.type === "SELECTION_STATE") {
+            const s = msg.payload || {};
+            const map = {
+                "[data-key='pos-constraints']": s.canConstraints,
+                "[data-key='cornerRadius']": s.canCorner,
+                "[data-key='fill']": s.canFill,
+                "[data-key='stroke']": s.canStroke,
+                "[data-key='effect']": s.canEffect,
+                "[data-key='layoutGrid']": s.canGrid,
+                "[data-key='export']": s.canExport
+            };
+            for (const sel in map) $$(sel).forEach(el => { el.disabled = !map[sel]; });
+            }
 
-      set("opacity", o.appearance && o.appearance.opacity);
-      set("blendMode", o.appearance && o.appearance.blendMode);
-      set("cornerRadius", o.appearance && o.appearance.cornerRadius);
+            if (msg.type === "LOAD_OPTIONS" && msg.payload) {
+            const set = (k, v) => { const el = document.querySelector(`[data-key='${k}']`); if (el) el.checked = !!v; };
+            const o = msg.payload;
+            set("swapInLayers", o.swapInLayers);
 
-      set("fill", o.props && o.props.fill);
-      set("stroke", o.props && o.props.stroke);
-      set("effect", o.props && o.props.effect);
-      set("layoutGrid", o.props && o.props.layoutGrid);
-      set("export", o.props && o.props.export);
-    }
-  };
+            set("pos-x", o.position && o.position.x);
+            set("pos-y", o.position && o.position.y);
+            set("pos-rotation", o.position && o.position.rotation);
+            set("pos-constraints", o.position && o.position.constraints);
+            set("pos-ignoreLayout", o.position && o.position.ignoreLayout);
 
-  const read = (k) => {
-    const el = document.querySelector(`[data-key='${k}']`);
-    return !!(el && el.checked);
-  };
+            set("opacity", o.appearance && o.appearance.opacity);
+            set("blendMode", o.appearance && o.appearance.blendMode);
+            set("cornerRadius", o.appearance && o.appearance.cornerRadius);
 
-  const runBtn = document.getElementById("runSwap");
-  if (runBtn) runBtn.addEventListener("click", () => {
-    const options = {
-      swapInLayers: read("swapInLayers"),
-      position: {
-        x: read("pos-x"),
-        y: read("pos-y"),
-        rotation: read("pos-rotation"),
-        constraints: read("pos-constraints"),
-        ignoreLayout: read("pos-ignoreLayout")
-      },
-      appearance: {
-        opacity: read("opacity"),
-        blendMode: read("blendMode"),
-        cornerRadius: read("cornerRadius")
-      },
-      props: {
-        fill: read("fill"),
-        stroke: read("stroke"),
-        effect: read("effect"),
-        layoutGrid: read("layoutGrid"),
-        export: read("export")
-      }
-    };
-    parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options } } }, "*");
-  });
+            set("fill", o.props && o.props.fill);
+            set("stroke", o.props && o.props.stroke);
+            set("effect", o.props && o.props.effect);
+            set("layoutGrid", o.props && o.props.layoutGrid);
+            set("export", o.props && o.props.export);
+            }
+        };
 
-  const cancelBtn = document.getElementById("cancel");
-  if (cancelBtn) cancelBtn.addEventListener("click", () => {
-    parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
-  });
+        const read = (k) => {
+            const el = document.querySelector(`[data-key='${k}']`);
+            return !!(el && el.checked);
+        };
+
+        const runBtn = document.getElementById("runSwap");
+        if (runBtn) runBtn.addEventListener("click", () => {
+            const options = {
+            swapInLayers: read("swapInLayers"),
+            position: {
+                x: read("pos-x"),
+                y: read("pos-y"),
+                rotation: read("pos-rotation"),
+                constraints: read("pos-constraints"),
+                ignoreLayout: read("pos-ignoreLayout")
+            },
+            appearance: {
+                opacity: read("opacity"),
+                blendMode: read("blendMode"),
+                cornerRadius: read("cornerRadius")
+            },
+            props: {
+                fill: read("fill"),
+                stroke: read("stroke"),
+                effect: read("effect"),
+                layoutGrid: read("layoutGrid"),
+                export: read("export")
+            }
+            };
+            console.log("[switcheroo-ui] sending options", options);
+            parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options } } }, "*");
+        });
+
+        const cancelBtn = document.getElementById("cancel");
+        if (cancelBtn) cancelBtn.addEventListener("click", () => {
+            parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
+        });
 </script>
 
 </body>
