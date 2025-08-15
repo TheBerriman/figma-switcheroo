@@ -4,15 +4,15 @@
     <meta charset="utf-8">
     <title>Switcheroo</title>
     <style>
+        /* Import Inter font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@450&display=swap');
+        
         /* CSS Reset */
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
         }
-
-        /* Import Inter font */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@450&display=swap');
 
         /* Base typography */
         body {
@@ -717,70 +717,122 @@
     <script>
         console.log("[switcheroo-ui] script alive");
 
+        const $ = (s, r = document) => r.querySelector(s);
+        const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
-        const $ = (s, r=document) => r.querySelector(s);
-        const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+        // --- state sync helpers ----------------------------------------------------
+        function syncCheckboxVisual(el) {
+            if (!el) return;
+            const wrap = el.closest(".checkbox");
+            if (!wrap) return;
+            wrap.classList.toggle("checked", !!el.checked);
+            wrap.classList.toggle("disabled", !!el.disabled);
+        }
 
-        // Make whole rows toggle their checkbox
+        function syncAllCheckboxes() {
+            $$("input[type='checkbox'][data-key]").forEach(syncCheckboxVisual);
+            // Switch knob mirrors hidden input
+            const switchInput = $("[data-key='swapInLayers']");
+            const switchEl = $("#swapInLayersToggle");
+            if (switchEl && switchInput) {
+            switchEl.classList.toggle("active", !!switchInput.checked);
+            switchEl.classList.toggle("disabled", !!switchInput.disabled);
+            }
+        }
+
+        function setCheckedByKey(key, val) {
+            const el = document.querySelector(`[data-key='${key}']`);
+            if (el) { el.checked = !!val; syncCheckboxVisual(el); }
+        }
+
+        function setDisabledByKey(key, disabled) {
+            const el = document.querySelector(`[data-key='${key}']`);
+            if (el) { el.disabled = !!disabled; syncCheckboxVisual(el); }
+        }
+
+        // --- row click toggling (visual + hidden) ----------------------------------
         document.addEventListener("click", (ev) => {
+            // Don’t hijack button clicks
+            if ((ev.target.closest(".button-group") || ev.target.closest("#swapInLayersToggle"))) return;
+
             const row = ev.target.closest("[data-row]");
             if (!row) return;
-            const input = row.querySelector("input[type='checkbox']");
-            if (input && !input.disabled && ev.target !== input) { input.checked = !input.checked; }
+            const input = row.querySelector("input[type='checkbox'][data-key]");
+            if (!input || input.disabled) return;
+
+            input.checked = !input.checked;
+            syncCheckboxVisual(input);
         });
 
-        // Ask plugin for selection capabilities on open
+        // --- switch binding ---------------------------------------------------------
+        const switchEl = $("#swapInLayersToggle");
+        const switchInput = $("[data-key='swapInLayers']");
+
+        function toggleSwitch() {
+            if (!switchInput || switchInput.disabled) return;
+            switchInput.checked = !switchInput.checked;
+            syncAllCheckboxes();
+        }
+
+        if (switchEl) {
+            switchEl.addEventListener("click", toggleSwitch);
+            switchEl.addEventListener("keydown", (e) => {
+            if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSwitch(); }
+            });
+        }
+
+        // --- ask plugin for selection capabilities on open -------------------------
         parent.postMessage({ pluginMessage: { type: "REQUEST_SELECTION_STATE" } }, "*");
 
-        // Receive selection caps and saved options
+        // --- receive from plugin ----------------------------------------------------
         onmessage = (e) => {
-            const msg = e.data.pluginMessage;
+            const msg = e.data?.pluginMessage;
             if (!msg) return;
 
             if (msg.type === "SELECTION_STATE") {
             const s = msg.payload || {};
-            const map = {
-                "[data-key='pos-constraints']": s.canConstraints,
-                "[data-key='cornerRadius']": s.canCorner,
-                "[data-key='fill']": s.canFill,
-                "[data-key='stroke']": s.canStroke,
-                "[data-key='effect']": s.canEffect,
-                "[data-key='layoutGrid']": s.canGrid,
-                "[data-key='export']": s.canExport
+            const caps = {
+                "pos-constraints": s.canConstraints,
+                "cornerRadius": s.canCorner,
+                "fill": s.canFill,
+                "stroke": s.canStroke,
+                "effect": s.canEffect,
+                "layoutGrid": s.canGrid,
+                "export": s.canExport
             };
-            for (const sel in map) $$(sel).forEach(el => { el.disabled = !map[sel]; });
+            Object.entries(caps).forEach(([key, can]) => setDisabledByKey(key, !can));
+            syncAllCheckboxes();
             }
 
             if (msg.type === "LOAD_OPTIONS" && msg.payload) {
-            const set = (k, v) => { const el = document.querySelector(`[data-key='${k}']`); if (el) el.checked = !!v; };
             const o = msg.payload;
-            set("swapInLayers", o.swapInLayers);
+            setCheckedByKey("swapInLayers", !!o.swapInLayers);
 
-            set("pos-x", o.position && o.position.x);
-            set("pos-y", o.position && o.position.y);
-            set("pos-rotation", o.position && o.position.rotation);
-            set("pos-constraints", o.position && o.position.constraints);
-            set("pos-ignoreLayout", o.position && o.position.ignoreLayout);
+            setCheckedByKey("pos-x", !!(o.position && o.position.x));
+            setCheckedByKey("pos-y", !!(o.position && o.position.y));
+            setCheckedByKey("pos-rotation", !!(o.position && o.position.rotation));
+            setCheckedByKey("pos-constraints", !!(o.position && o.position.constraints));
+            setCheckedByKey("pos-ignoreLayout", !!(o.position && o.position.ignoreLayout));
 
-            set("opacity", o.appearance && o.appearance.opacity);
-            set("blendMode", o.appearance && o.appearance.blendMode);
-            set("cornerRadius", o.appearance && o.appearance.cornerRadius);
+            setCheckedByKey("opacity", !!(o.appearance && o.appearance.opacity));
+            setCheckedByKey("blendMode", !!(o.appearance && o.appearance.blendMode));
+            setCheckedByKey("cornerRadius", !!(o.appearance && o.appearance.cornerRadius));
 
-            set("fill", o.props && o.props.fill);
-            set("stroke", o.props && o.props.stroke);
-            set("effect", o.props && o.props.effect);
-            set("layoutGrid", o.props && o.props.layoutGrid);
-            set("export", o.props && o.props.export);
+            setCheckedByKey("fill", !!(o.props && o.props.fill));
+            setCheckedByKey("stroke", !!(o.props && o.props.stroke));
+            setCheckedByKey("effect", !!(o.props && o.props.effect));
+            setCheckedByKey("layoutGrid", !!(o.props && o.props.layoutGrid));
+            setCheckedByKey("export", !!(o.props && o.props.export));
+
+            syncAllCheckboxes();
             }
         };
 
-        const read = (k) => {
-            const el = document.querySelector(`[data-key='${k}']`);
-            return !!(el && el.checked);
-        };
-
-        const runBtn = document.getElementById("runSwap");
+        // --- run / cancel -----------------------------------------------------------
+        const runBtn = $("#runSwap");
         if (runBtn) runBtn.addEventListener("click", () => {
+            const read = (k) => !!document.querySelector(`[data-key='${k}']`)?.checked;
+
             const options = {
             swapInLayers: read("swapInLayers"),
             position: {
@@ -807,11 +859,14 @@
             parent.postMessage({ pluginMessage: { type: "RUN_SWAP", payload: { options } } }, "*");
         });
 
-        const cancelBtn = document.getElementById("cancel");
+        const cancelBtn = $("#cancel");
         if (cancelBtn) cancelBtn.addEventListener("click", () => {
             parent.postMessage({ pluginMessage: { type: "CLOSE" } }, "*");
         });
-</script>
+
+        // Initial visual sync in case defaults are pre-checked by HTML
+        syncAllCheckboxes();
+        </script>
 
 </body>
 </html>

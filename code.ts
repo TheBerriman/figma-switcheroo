@@ -113,7 +113,37 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" |
 type PropKey = "opacity"|"blend mode"|"corner radius"|"fill"|"stroke"|"effect"|"layout grid"|"export"|"variable mode";
 
 type Swapper = (a: SceneNode, b: SceneNode) => 1 | undefined | Promise<1 | undefined>;
-const cloneObjs = <T extends object>(arr: ReadonlyArray<T>): T[] => arr.map(o => ({ ...o }));
+// replace existing cloneObjs and add helpers
+const cloneObjs = <T extends object>(arr: ReadonlyArray<T>): T[] =>
+  arr.map(o => ({ ...o }));
+
+const deepEqual = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const ak = Object.keys(a), bk = Object.keys(b);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (!deepEqual(a[k], (b as any)[k])) return false;
+    return true;
+  }
+  return false;
+};
+
+const isExportDefault = (n: any): boolean =>
+  "exportSettings" in n && (!n.exportSettings || n.exportSettings.length === 0);
+
+const isCornerDefault = (n: any): boolean => {
+  if ("topLeftRadius" in n)
+    return n.topLeftRadius === 0 && n.topRightRadius === 0 &&
+           n.bottomLeftRadius === 0 && n.bottomRightRadius === 0;
+  if ("cornerRadius" in n) return n.cornerRadius === 0;
+  return true;
+};
 
 const swap: Record<PropKey, Swapper> = {
   opacity: (a: SceneNode, b: SceneNode) =>
@@ -123,22 +153,42 @@ const swap: Record<PropKey, Swapper> = {
     ("blendMode" in a && "blendMode" in b &&
       ([(a as any).blendMode, (b as any).blendMode] = [(b as any).blendMode, (a as any).blendMode], 1)) || undefined,
 
-  "corner radius": (a: SceneNode, b: SceneNode) =>
-    ("cornerRadius" in a && "cornerRadius" in b &&
-      (() => {
-        const A = a as any, B = b as any;
-        if ("topLeftRadius" in A && "topLeftRadius" in B) {
-          [A.topLeftRadius, B.topLeftRadius] = [B.topLeftRadius, A.topLeftRadius];
-          [A.topRightRadius, B.topRightRadius] = [B.topRightRadius, A.topRightRadius];
-          [A.bottomLeftRadius, B.bottomLeftRadius] = [B.bottomLeftRadius, A.bottomLeftRadius];
-          [A.bottomRightRadius, B.bottomRightRadius] = [B.bottomRightRadius, A.bottomRightRadius];
-          if ("cornerSmoothing" in A && "cornerSmoothing" in B) [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
-          return 1 as const;
-        }
-        [A.cornerRadius, B.cornerRadius] = [B.cornerRadius, A.cornerRadius];
-        if ("cornerSmoothing" in A && "cornerSmoothing" in B) [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
-        return 1 as const;
-      })()) || undefined,
+  "corner radius": (a: SceneNode, b: SceneNode) => (
+    ("cornerRadius" in a && "cornerRadius" in b) && (() => {
+      const A = a as any, B = b as any;
+
+      const equalPerCorner =
+        ("topLeftRadius" in A && "topLeftRadius" in B) &&
+        A.topLeftRadius === B.topLeftRadius &&
+        A.topRightRadius === B.topRightRadius &&
+        A.bottomLeftRadius === B.bottomLeftRadius &&
+        A.bottomRightRadius === B.bottomRightRadius &&
+        ((!("cornerSmoothing" in A) || !("cornerSmoothing" in B)) || A.cornerSmoothing === B.cornerSmoothing);
+
+      const equalUnified =
+        !("topLeftRadius" in A) && !("topLeftRadius" in B) &&
+        A.cornerRadius === B.cornerRadius &&
+        ((!("cornerSmoothing" in A) || !("cornerSmoothing" in B)) || A.cornerSmoothing === B.cornerSmoothing);
+
+      if (equalPerCorner || equalUnified) return undefined;
+      if (isCornerDefault(A) && isCornerDefault(B)) return undefined;
+
+      if ("topLeftRadius" in A && "topLeftRadius" in B) {
+        [A.topLeftRadius,    B.topLeftRadius]    = [B.topLeftRadius,    A.topLeftRadius];
+        [A.topRightRadius,   B.topRightRadius]   = [B.topRightRadius,   A.topRightRadius];
+        [A.bottomLeftRadius, B.bottomLeftRadius] = [B.bottomLeftRadius, A.bottomLeftRadius];
+        [A.bottomRightRadius,B.bottomRightRadius]= [B.bottomRightRadius,A.bottomRightRadius];
+        if ("cornerSmoothing" in A && "cornerSmoothing" in B)
+          [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
+        return 1;
+      }
+
+      [A.cornerRadius, B.cornerRadius] = [B.cornerRadius, A.cornerRadius];
+      if ("cornerSmoothing" in A && "cornerSmoothing" in B)
+        [A.cornerSmoothing, B.cornerSmoothing] = [B.cornerSmoothing, A.cornerSmoothing];
+      return 1;
+    })()
+  ) || undefined,
 
   fill: (a, b) =>
     ("fills" in a && "fills" in b && (() => {
@@ -148,20 +198,71 @@ const swap: Record<PropKey, Swapper> = {
       return 1 as const;
     })()) || undefined,
 
-  stroke: (a, b) =>
-    ("strokes" in a && "strokes" in b && (() => {
+  stroke: async (a, b) => (
+    "strokes" in a && "strokes" in b && (async () => {
       const A = a as any, B = b as any;
+
+      const samePaints = deepEqual(A.strokes, B.strokes);
+      const sameBasic =
+        A.strokeWeight === B.strokeWeight &&
+        A.strokeAlign === B.strokeAlign &&
+        deepEqual(A.dashPattern, B.dashPattern) &&
+        A.strokeCap === B.strokeCap &&
+        A.strokeJoin === B.strokeJoin &&
+        A.strokeMiterLimit === B.strokeMiterLimit;
+
+      const hasSidesA = "strokeTopWeight" in A, hasSidesB = "strokeTopWeight" in B;
+      const sameSides = hasSidesA && hasSidesB &&
+        A.strokeTopWeight === B.strokeTopWeight &&
+        A.strokeRightWeight === B.strokeRightWeight &&
+        A.strokeBottomWeight === B.strokeBottomWeight &&
+        A.strokeLeftWeight === B.strokeLeftWeight;
+
+      const sameStyle =
+        ("strokeStyleId" in A && "strokeStyleId" in B) ?
+          A.strokeStyleId === B.strokeStyleId : true;
+
+      if (samePaints && sameBasic && (hasSidesA === hasSidesB ? sameSides : true) && sameStyle)
+        return undefined;
+
       const as = A.strokes, bs = B.strokes;
-      A.strokes = cloneObjs(bs); B.strokes = cloneObjs(as);
-      try { if ("strokeStyleId" in A && "strokeStyleId" in B) [A.strokeStyleId, B.strokeStyleId] = [B.strokeStyleId, A.strokeStyleId]; } catch {}
-      try { if ("strokeWeight"  in A && "strokeWeight"  in B) [A.strokeWeight,  B.strokeWeight ] = [B.strokeWeight,  A.strokeWeight ]; } catch {}
-      try { if ("strokeAlign"  in A && "strokeAlign"  in B) [A.strokeAlign,  B.strokeAlign ] = [B.strokeAlign,  A.strokeAlign ]; } catch {}
-      try { if ("dashPattern"  in A && "dashPattern"  in B) [A.dashPattern,  B.dashPattern ] = [B.dashPattern,  A.dashPattern ]; } catch {}
-      try { if ("strokeCap"    in A && "strokeCap"    in B) [A.strokeCap,    B.strokeCap   ] = [B.strokeCap,    A.strokeCap   ]; } catch {}
-      try { if ("strokeJoin"   in A && "strokeJoin"   in B) [A.strokeJoin,   B.strokeJoin  ] = [B.strokeJoin,   A.strokeJoin  ]; } catch {}
-      try { if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit]; } catch {}
-      return 1 as const;
-    })()) || undefined,
+      A.strokes = cloneObjs(bs);
+      B.strokes = cloneObjs(as);
+
+      try {
+        if ("strokeStyleId" in A && "strokeStyleId" in B) {
+          const aId = A.strokeStyleId || "";
+          const bId = B.strokeStyleId || "";
+          if (typeof A.setStrokeStyleIdAsync === "function" && typeof B.setStrokeStyleIdAsync === "function") {
+            await Promise.all([
+              A.setStrokeStyleIdAsync(bId),
+              B.setStrokeStyleIdAsync(aId),
+            ]);
+          } else {
+            [A.strokeStyleId, B.strokeStyleId] = [bId, aId];
+          }
+        }
+      } catch (e) { }
+
+      try { if ("strokeWeight" in A && "strokeWeight" in B) [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight]; } catch (e) { }
+      try { if ("strokeAlign"  in A && "strokeAlign"  in B) [A.strokeAlign,  B.strokeAlign ] = [B.strokeAlign,  A.strokeAlign ]; } catch (e) { }
+      try { if ("dashPattern"  in A && "dashPattern"  in B) [A.dashPattern,  B.dashPattern ] = [B.dashPattern,  A.dashPattern ]; } catch (e) { }
+      try { if ("strokeCap"    in A && "strokeCap"    in B) [A.strokeCap,    B.strokeCap   ] = [B.strokeCap,    A.strokeCap   ]; } catch (e) { }
+      try { if ("strokeJoin"   in A && "strokeJoin"   in B) [A.strokeJoin,   B.strokeJoin  ] = [B.strokeJoin,   A.strokeJoin  ]; } catch (e) { }
+      try { if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit]; } catch (e) { }
+
+      if (hasSidesA && hasSidesB) {
+        try {
+          [A.strokeTopWeight,    B.strokeTopWeight   ] = [B.strokeTopWeight,    A.strokeTopWeight   ];
+          [A.strokeRightWeight,  B.strokeRightWeight ] = [B.strokeRightWeight,  A.strokeRightWeight ];
+          [A.strokeBottomWeight, B.strokeBottomWeight] = [B.strokeBottomWeight, A.strokeBottomWeight];
+          [A.strokeLeftWeight,   B.strokeLeftWeight  ] = [B.strokeLeftWeight,   A.strokeLeftWeight  ];
+        } catch (e) { }
+      }
+
+      return 1;
+    })()
+  ) || undefined,
 
   effect: (a, b) =>
     ("effects" in a && "effects" in b && (() => {
@@ -179,12 +280,20 @@ const swap: Record<PropKey, Swapper> = {
       return 1 as const;
     })()) || undefined,
 
-  export: (a, b) =>
-    ("exportSettings" in a && "exportSettings" in b && (() => {
-      const A = a as any, B = b as any; const ae = A.exportSettings, be = B.exportSettings;
-      A.exportSettings = cloneObjs(be); B.exportSettings = cloneObjs(ae);
-      return 1 as const;
-    })()) || undefined,
+  export: (a, b) => (
+    "exportSettings" in a && "exportSettings" in b && (() => {
+      const A = a as any, B = b as any;
+      const ae = A.exportSettings ?? [];
+      const be = B.exportSettings ?? [];
+
+      if (ae.length === 0 && be.length === 0) return undefined;
+      if (deepEqual(ae, be)) return undefined;
+
+      A.exportSettings = cloneObjs(be);
+      B.exportSettings = cloneObjs(ae);
+      return 1;
+    })()
+  ) || undefined,
 
   "variable mode": async (a, b) => {
     const modesA = (a as any).resolvedVariableModes as Record<string,string>|undefined;
