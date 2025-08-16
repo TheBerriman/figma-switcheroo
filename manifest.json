@@ -14,8 +14,8 @@
       "parameters": [
         {
           "key": "scope",
-          "name": "Choose what to swap",
-          "description": "(default) | canvas position | layers panel",
+          "name": "Controlled swap",
+          "description": "Choose below if you only want to switch visually or in the layers panel",
           "optional": true
         }
       ]
@@ -27,8 +27,8 @@
       "parameters": [
         {
           "key": "property",
-          "name": "Property to swap",
-          "description": "(all) | opacity | blend mode | corner radius | fill | stroke | effect | layout grid | export",
+          "name": "Swap individual property",
+          "description": "Select below to swap just one property",
           "optional": true
         }
       ]

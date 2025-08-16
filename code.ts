@@ -82,7 +82,10 @@ function inInstanceChain(n: SceneNode): boolean {
   return false;
 }
 
-function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" | "blocked" {
+function doSwitchLayers(
+  scope: "default"|"canvas"|"panel",
+  pos?: { x?: boolean; y?: boolean; rotation?: boolean; constraints?: boolean }
+): number | "invalid" | "blocked" {
   const pair = requireTwo(); if (!pair) return "invalid";
   const [a,b] = pair;
 
@@ -95,29 +98,68 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" |
   const doCanvas = scope === "default" || scope === "canvas";
 
   try {
-    // 1) If needed, swap parents/index first
+    // Panel index/parent swap (unchanged)
     if (doPanel) swapParentsAndIndex(a, b);
 
     if (doCanvas) {
-      // 2) Swap layoutPositioning (absolute/auto) first
-      if ("layoutPositioning" in a && "layoutPositioning" in b) {
-        const t = a.layoutPositioning;
-        a.layoutPositioning = b.layoutPositioning;
-        b.layoutPositioning = t;
+      // Old behavior if no granular options provided
+      if (!pos) {
+        if ("layoutPositioning" in a && "layoutPositioning" in b) {
+          const t = a.layoutPositioning;
+          a.layoutPositioning = b.layoutPositioning;
+          b.layoutPositioning = t;
+        }
+        try { swapConstraints(a, b); } catch {}
+        if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absB, a.parent as any);
+        if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absA, b.parent as any);
+      } else {
+        // Constraints
+        if (pos.constraints) { try { swapConstraints(a, b); } catch {} }
+
+        // Rotation
+        if (pos.rotation) {
+          try {
+            if ("rotation" in (a as any) && "rotation" in (b as any)) {
+              const ra = (a as any).rotation, rb = (b as any).rotation;
+              (a as any).rotation = rb;
+              (b as any).rotation = ra;
+            } else {
+              // Fallback: swap 2x2 orientation matrix, preserve translation
+              const newAbsA: [[number,number,number],[number,number,number]] =
+                [[absA[0][0], absA[0][1], absA[0][2]],[absA[1][0], absA[1][1], absA[1][2]]];
+              const newAbsB: [[number,number,number],[number,number,number]] =
+                [[absB[0][0], absB[0][1], absB[0][2]],[absB[1][0], absB[1][1], absB[1][2]]];
+              newAbsA[0][0]=absB[0][0]; newAbsA[0][1]=absB[0][1];
+              newAbsA[1][0]=absB[1][0]; newAbsA[1][1]=absB[1][1];
+              newAbsB[0][0]=absA[0][0]; newAbsB[0][1]=absA[0][1];
+              newAbsB[1][0]=absA[1][0]; newAbsB[1][1]=absA[1][1];
+              if (canSetRelativeTransform(a)) (a as any).relativeTransform = toParentSpace(newAbsA, a.parent as any);
+              if (canSetRelativeTransform(b)) (b as any).relativeTransform = toParentSpace(newAbsB, b.parent as any);
+            }
+          } catch { issues++; }
+        }
+
+        // X and Y
+        if (pos.x || pos.y) {
+          const newAbsA: [[number,number,number],[number,number,number]] =
+            [[absA[0][0], absA[0][1], absA[0][2]],[absA[1][0], absA[1][1], absA[1][2]]];
+          const newAbsB: [[number,number,number],[number,number,number]] =
+            [[absB[0][0], absB[0][1], absB[0][2]],[absB[1][0], absB[1][1], absB[1][2]]];
+          if (pos.x) { const t = newAbsA[0][2]; newAbsA[0][2] = newAbsB[0][2]; newAbsB[0][2] = t; }
+          if (pos.y) { const t = newAbsA[1][2]; newAbsA[1][2] = newAbsB[1][2]; newAbsB[1][2] = t; }
+          try {
+            if (canSetRelativeTransform(a)) (a as any).relativeTransform = toParentSpace(newAbsA, a.parent as any);
+            if (canSetRelativeTransform(b)) (b as any).relativeTransform = toParentSpace(newAbsB, b.parent as any);
+          } catch { issues++; }
+        }
       }
-
-      // 3) Then swap constraints (now both are in their final positioning context)
-      try { swapConstraints(a, b); } catch {}
-
-      // 4) Finally write transforms
-      if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absB, a.parent as any);
-      if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absA, b.parent as any);
     } else if (doPanel) {
-      // Only panel swap: keep original transforms
+      // Only panel swap: reapply original transforms
       if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absA, a.parent as any);
       if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absB, b.parent as any);
     }
   } catch { issues++; }
+
   return issues;
 }
 
@@ -445,10 +487,10 @@ async function doSwitchProperties(prop: PropKey | "all") {
 figma.parameters.on("input", ({ query, key, result }) => {
   const q = (query ?? "").toLowerCase();
   if (key === "scope") {
-    const choices = ["(default)","canvas position","layers panel"];
+    const choices = ["canvas position","layers panel"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else if (key === "property") {
-    const choices = ["(all)","opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export","variable mode"];
+    const choices = ["opacity","variable mode","blend mode","corner radius","fill","stroke","effect","layout grid","export"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else {
     result.setSuggestions([]);
@@ -457,7 +499,7 @@ figma.parameters.on("input", ({ query, key, result }) => {
 
 figma.on("run", async ({ command, parameters }) => {
   if (command === "switch-layers") {
-    const scopeRaw = toKey(String(parameters?.scope ?? "(default)"));
+    const scopeRaw = toKey(String(parameters?.scope ?? ""));
     const scope: "default"|"canvas"|"panel" =
       scopeRaw.includes("canvas") ? "canvas" :
       (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel" : "default";
@@ -474,7 +516,7 @@ figma.on("run", async ({ command, parameters }) => {
   }
 
   if (command === "switch-properties") {
-    const p = toKey(String(parameters?.property ?? "(all)"));
+    const p = toKey(String(parameters?.property ?? ""));
     const map: Record<string, PropKey | "all"> = {
       "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
       "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
@@ -494,22 +536,18 @@ figma.on("run", async ({ command, parameters }) => {
   }
 
   if (command === "switch-ui") {
-    figma.showUI(__html__, { width: 320, height: 428, themeColors: true });
+    figma.showUI(__html__, { width: 240, height: 684, themeColors: true });
     postSelectionState();
     bindUiHandlers();
-    (async () => {
-      const saved = await loadUiOptions();
-      figma.ui.postMessage({ type:"LOAD_OPTIONS", payload: saved });
-    })();
   }
 });
 
 // ---- UI bridge
 type UiOptions = {
   swapInLayers: boolean;
-  position: { x:boolean; y:boolean; rotation:boolean; constraints:boolean; ignoreLayout:boolean };
+  position: { x:boolean; y:boolean; rotation:boolean; constraints:boolean };
   appearance: { opacity:boolean; blendMode:boolean; cornerRadius:boolean };
-  props: { fill:boolean; stroke:boolean; effect:boolean; layoutGrid:boolean; export:boolean };
+  props: { fill:boolean; stroke:boolean; effect:boolean; layoutGrid:boolean; export:boolean; variableMode:boolean };
 };
 type UiMessage =
   | { type: "RUN_SWAP"; payload: { options: UiOptions|null } }
@@ -518,29 +556,23 @@ type UiMessage =
   | { type: "REQUEST_SELECTION_STATE" }
   | { type: "CLOSE" };
 
-async function loadUiOptions(): Promise<UiOptions | null> {
-  try { return await figma.clientStorage.getAsync("switcheroo.ui.options"); } catch { return null; }
-}
-async function saveUiOptions(opts: UiOptions) {
-  try { await figma.clientStorage.setAsync("switcheroo.ui.options", opts); } catch {}
-}
-
 function postSelectionState() {
   if (!figma.ui) return;
   const pair = figma.currentPage.selection.filter((n): n is SceneNode => true).slice(0,2);
   const has = (f:(n:SceneNode)=>boolean)=>pair.some(f);
   const state = {
     twoSelected: pair.length === 2,
-    hasPosition: pair.length === 2,
-    canConstraints: has(n=>"constraints" in n),
-    canCorner: has(n=>"cornerRadius" in n),
-    canFill: has(n=>"fills" in n),
-    canStroke: has(n=>"strokes" in n),
-    canEffect: has(n=>"effects" in n),
-    canGrid: has(n=>"layoutGrids" in n),
-    canExport: has(n=>"exportSettings" in n),
+    canPosition: pair.length === 2 && pair.every(canSetRelativeTransform),
+    canConstraints: has(n => "constraints" in n),
+    canCorner: has(n => "cornerRadius" in n),
+    canFill: has(n => "fills" in n),
+    canStroke: has(n => "strokes" in n),
+    canEffect: has(n => "effects" in n),
+    canGrid: has(n => "layoutGrids" in n),
+    canExport: has(n => "exportSettings" in n),
+    canVariable: has(n => "setExplicitVariableModeForCollection" in (n as any)),
   };
-  figma.ui.postMessage({ type:"SELECTION_STATE", payload: state });
+  figma.ui.postMessage({ type:"SELECTION_STATE", payload: state });  
 }
 
 function bindUiHandlers() {
@@ -551,13 +583,11 @@ function bindUiHandlers() {
     if (msg.type === "RUN_SWAP") {
       const opts = msg.payload.options;
       if (!opts) { figma.closePlugin(); return; }
-      
-      await saveUiOptions(opts);
 
       if (opts.swapInLayers) doSwitchLayers("panel");
 
       if (opts.position.x || opts.position.y || opts.position.rotation || opts.position.constraints) {
-        doSwitchLayers("canvas");
+        doSwitchLayers("canvas", opts.position);
       }
 
       const props: PropKey[] = [];
@@ -569,11 +599,12 @@ function bindUiHandlers() {
       if (opts.props.effect) props.push("effect");
       if (opts.props.layoutGrid) props.push("layout grid");
       if (opts.props.export) props.push("export");
+      if (opts.props.variableMode) props.push("variable mode");
 
       for (const p of props) await doSwitchProperties(p);
 
-      figma.ui.postMessage({ type:"DONE", payload:{ ok:true }});
-      figma.notify("Swap complete.");
+      // Close UI after run
+      figma.closePlugin("Swap complete.");
       return;
     }
 
