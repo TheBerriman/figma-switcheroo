@@ -1,3 +1,17 @@
+function debugLayoutAndConstraints(node: SceneNode, label: string) {
+  const info: Record<string, any> = { type: node.type };
+
+  if ("layoutPositioning" in node) {
+    info.layoutPositioning = node.layoutPositioning;
+  }
+  if ("constraints" in node) {
+    info.constraints = node.constraints;
+  }
+
+  console.log(`[swap-debug] ${label}`, info);
+}
+
+
 // Switcheroo — stable core
 
 type T2 = Transform;
@@ -85,18 +99,25 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" |
     if (doPanel) swapParentsAndIndex(a, b);
 
     if (doCanvas) {
-      // 2) Swap constraints first
-      try { swapConstraints(a, b); } catch {}
+      debugLayoutAndConstraints(a, "A before");
+      debugLayoutAndConstraints(b, "B before");
 
-      // 3) Then swap layoutPositioning (absolute/auto)
+      // 2) Swap layoutPositioning (absolute/auto) first
       if ("layoutPositioning" in a && "layoutPositioning" in b) {
-        const t = a.layoutPositioning; a.layoutPositioning = b.layoutPositioning; b.layoutPositioning = t;
+        const t = a.layoutPositioning;
+        a.layoutPositioning = b.layoutPositioning;
+        b.layoutPositioning = t;
       }
+
+      // 3) Then swap constraints (now both are in their final positioning context)
+      try { swapConstraints(a, b); } catch {}
 
       // 4) Finally write transforms
       if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absB, a.parent as any);
       if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absA, b.parent as any);
 
+      debugLayoutAndConstraints(a, "A after");
+      debugLayoutAndConstraints(b, "B after");
     } else if (doPanel) {
       // Only panel swap: keep original transforms
       if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absA, a.parent as any);

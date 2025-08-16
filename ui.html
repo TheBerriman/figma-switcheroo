@@ -785,6 +785,7 @@
         // --- receive from plugin ----------------------------------------------------
         onmessage = (e) => {
             const msg = e.data?.pluginMessage;
+            console.log("[switch-ui] SELECTION_STATE:", msg);
             if (!msg) return;
 
             if (msg.type === "SELECTION_STATE") {
