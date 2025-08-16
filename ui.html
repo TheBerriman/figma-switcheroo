@@ -748,19 +748,66 @@
             if (el) { el.disabled = !!disabled; syncCheckboxVisual(el); }
         }
 
-        // --- row click toggling (visual + hidden) ----------------------------------
-        document.addEventListener("click", (ev) => {
-            // Don’t hijack button clicks
-            if ((ev.target.closest(".button-group") || ev.target.closest("#swapInLayersToggle"))) return;
+        
+        // Make .checkbox focusable and operable via keyboard
+        function initCheckboxA11y() {
+            document.querySelectorAll(".checkbox").forEach((box) => {
+            box.setAttribute("tabindex", "0");
+            box.setAttribute("role", "checkbox");
+            box.setAttribute("aria-checked", "false");
+            box.setAttribute("aria-disabled", "false");
+            });
 
-            const row = ev.target.closest("[data-row]");
+            document.addEventListener("keydown", (ev) => {
+            const target = ev.target;
+            if (!target) return;
+
+            const box = target.closest(".checkbox");
+            if (!box) return;
+            if (ev.key !== " " && ev.key !== "Enter") return;
+            ev.preventDefault();
+
+            const row = box.closest("[data-row]");
             if (!row) return;
             const input = row.querySelector("input[type='checkbox'][data-key]");
             if (!input || input.disabled) return;
 
             input.checked = !input.checked;
             syncCheckboxVisual(input);
+            });
+        }
+
+        // Extend your existing visual sync to keep ARIA in step
+        const _origSync = window.syncCheckboxVisual;
+        window.syncCheckboxVisual = function(el) {
+            _origSync(el);
+            const wrap = el.closest(".checkbox");
+            if (wrap) {
+            wrap.setAttribute("aria-checked", el.checked ? "true" : "false");
+            wrap.setAttribute("aria-disabled", el.disabled ? "true" : "false");
+            }
+        };
+
+        initCheckboxA11y();
+
+        // --- row click toggling (visual + hidden) ----------------------------------
+        document.addEventListener("click", (ev) => {
+            // Don’t hijack button clicks or the switch toggle
+            if (ev.target.closest(".button-group") || ev.target.closest("#swapInLayersToggle")) return;
+
+            const box = ev.target.closest(".checkbox");
+            if (!box) return;
+
+            const row = box.closest("[data-row]");
+            if (!row) return;
+
+            const input = row.querySelector("input[type='checkbox'][data-key]");
+            if (!input || input.disabled) return;
+
+            input.checked = !input.checked;
+            syncCheckboxVisual(input); // this already updates ARIA too
         });
+
 
         // --- switch binding ---------------------------------------------------------
         const switchEl = $("#swapInLayersToggle");
@@ -785,7 +832,7 @@
         // --- receive from plugin ----------------------------------------------------
         onmessage = (e) => {
             const msg = e.data?.pluginMessage;
-            console.log("[switch-ui] SELECTION_STATE:", msg);
+
             if (!msg) return;
 
             if (msg.type === "SELECTION_STATE") {

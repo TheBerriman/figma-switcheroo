@@ -99,9 +99,6 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" |
     if (doPanel) swapParentsAndIndex(a, b);
 
     if (doCanvas) {
-      debugLayoutAndConstraints(a, "A before");
-      debugLayoutAndConstraints(b, "B before");
-
       // 2) Swap layoutPositioning (absolute/auto) first
       if ("layoutPositioning" in a && "layoutPositioning" in b) {
         const t = a.layoutPositioning;
@@ -115,9 +112,6 @@ function doSwitchLayers(scope: "default"|"canvas"|"panel"): number | "invalid" |
       // 4) Finally write transforms
       if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absB, a.parent as any);
       if (canSetRelativeTransform(b)) b.relativeTransform = toParentSpace(absA, b.parent as any);
-
-      debugLayoutAndConstraints(a, "A after");
-      debugLayoutAndConstraints(b, "B after");
     } else if (doPanel) {
       // Only panel swap: keep original transforms
       if (canSetRelativeTransform(a)) a.relativeTransform = toParentSpace(absA, a.parent as any);
@@ -354,31 +348,39 @@ const swap: Record<PropKey, Swapper> = {
   ) || undefined,
 
   "variable mode": async (a, b) => {
-    const modesA = (a as any).resolvedVariableModes as Record<string,string>|undefined;
-    const modesB = (b as any).resolvedVariableModes as Record<string,string>|undefined;
-    if (!modesA && !modesB) return undefined;
+    const A = a as any, B = b as any;
 
-    const ids = new Set([...(Object.keys(modesA||{})), ...(Object.keys(modesB||{}))]);
+    // Effective collections on each node
+    const modesA = (A.resolvedVariableModes ?? {}) as Record<string, string>;
+    const modesB = (B.resolvedVariableModes ?? {}) as Record<string, string>;
 
-    // equality check across all referenced collections
-    let allSame = true;
-    for (const colId of ids) {
-      const ma = modesA?.[colId]; const mb = modesB?.[colId];
-      if (ma !== mb) { allSame = false; break; }
-    }
-    if (allSame) return undefined;
+    // Only act where both nodes actually have variables resolved for the collection
+    const shared = Object.keys(modesA).filter(id => id in modesB);
+    if (shared.length === 0) return undefined;
 
-    for (const colId of ids) {
+    // Swap only EXPLICIT modes; do not force-set inherited defaults
+    const expA = (A.explicitVariableModes ?? {}) as Record<string, string>;
+    const expB = (B.explicitVariableModes ?? {}) as Record<string, string>;
+
+    let changed = 0;
+
+    for (const colId of shared) {
       const coll = await figma.variables.getVariableCollectionByIdAsync(colId);
       if (!coll) continue;
-      const modeA = modesA?.[colId];
-      const modeB = modesB?.[colId];
-      if (modeB) (a as any).setExplicitVariableModeForCollection(coll, modeB);
-      else (a as any).clearExplicitVariableModeForCollection(coll);
-      if (modeA) (b as any).setExplicitVariableModeForCollection(coll, modeA);
-      else (b as any).clearExplicitVariableModeForCollection(coll);
+
+      const aExp = expA[colId];
+      const bExp = expB[colId];
+
+      // Apply A -> B
+      if (aExp) { B.setExplicitVariableModeForCollection(coll, aExp); changed++; }
+      else { B.clearExplicitVariableModeForCollection(coll); changed++; }
+
+      // Apply B -> A
+      if (bExp) { A.setExplicitVariableModeForCollection(coll, bExp); changed++; }
+      else { A.clearExplicitVariableModeForCollection(coll); changed++; }
     }
-    return 1 as const;
+
+    return changed > 0 ? 1 : undefined;
   },
 };
 
