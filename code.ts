@@ -536,7 +536,7 @@ figma.on("run", async ({ command, parameters }) => {
   }
 
   if (command === "switch-ui") {
-    figma.showUI(__html__, { width: 240, height: 684, themeColors: true });
+    figma.showUI(__html__, { width: 320, height: 436, themeColors: true });
     postSelectionState();
     bindUiHandlers();
   }
