@@ -116,42 +116,37 @@ function doSwitchLayers(
         // Constraints
         if (pos.constraints) { try { swapConstraints(a, b); } catch {} }
 
-        // Rotation
-        if (pos.rotation) {
-          try {
-            if ("rotation" in (a as any) && "rotation" in (b as any)) {
-              const ra = (a as any).rotation, rb = (b as any).rotation;
-              (a as any).rotation = rb;
-              (b as any).rotation = ra;
-            } else {
-              // Fallback: swap 2x2 orientation matrix, preserve translation
-              const newAbsA: [[number,number,number],[number,number,number]] =
-                [[absA[0][0], absA[0][1], absA[0][2]],[absA[1][0], absA[1][1], absA[1][2]]];
-              const newAbsB: [[number,number,number],[number,number,number]] =
-                [[absB[0][0], absB[0][1], absB[0][2]],[absB[1][0], absB[1][1], absB[1][2]]];
-              newAbsA[0][0]=absB[0][0]; newAbsA[0][1]=absB[0][1];
-              newAbsA[1][0]=absB[1][0]; newAbsA[1][1]=absB[1][1];
-              newAbsB[0][0]=absA[0][0]; newAbsB[0][1]=absA[0][1];
-              newAbsB[1][0]=absA[1][0]; newAbsB[1][1]=absA[1][1];
-              if (canSetRelativeTransform(a)) (a as any).relativeTransform = toParentSpace(newAbsA, a.parent as any);
-              if (canSetRelativeTransform(b)) (b as any).relativeTransform = toParentSpace(newAbsB, b.parent as any);
-            }
-          } catch { issues++; }
-        }
+        // Unified transform application to avoid rotation being overwritten by x/y
+        const wantsRot = !!pos.rotation;
+        const wantsX = !!pos.x;
+        const wantsY = !!pos.y;
 
-        // X and Y
-        if (pos.x || pos.y) {
+        if (wantsRot || wantsX || wantsY) {
+          // Clone current absolute transforms
           const newAbsA: [[number,number,number],[number,number,number]] =
-            [[absA[0][0], absA[0][1], absA[0][2]],[absA[1][0], absA[1][1], absA[1][2]]];
+            [[absA[0][0], absA[0][1], absA[0][2]], [absA[1][0], absA[1][1], absA[1][2]]];
           const newAbsB: [[number,number,number],[number,number,number]] =
-            [[absB[0][0], absB[0][1], absB[0][2]],[absB[1][0], absB[1][1], absB[1][2]]];
-          if (pos.x) { const t = newAbsA[0][2]; newAbsA[0][2] = newAbsB[0][2]; newAbsB[0][2] = t; }
-          if (pos.y) { const t = newAbsA[1][2]; newAbsA[1][2] = newAbsB[1][2]; newAbsB[1][2] = t; }
+            [[absB[0][0], absB[0][1], absB[0][2]], [absB[1][0], absB[1][1], absB[1][2]]];
+
+          // If rotating, swap the 2x2 orientation blocks
+          if (wantsRot) {
+            newAbsA[0][0] = absB[0][0]; newAbsA[0][1] = absB[0][1];
+            newAbsA[1][0] = absB[1][0]; newAbsA[1][1] = absB[1][1];
+
+            newAbsB[0][0] = absA[0][0]; newAbsB[0][1] = absA[0][1];
+            newAbsB[1][0] = absA[1][0]; newAbsB[1][1] = absA[1][1];
+          }
+
+          // If swapping positions, swap the translation components
+          if (wantsX) { const t = newAbsA[0][2]; newAbsA[0][2] = newAbsB[0][2]; newAbsB[0][2] = t; }
+          if (wantsY) { const t = newAbsA[1][2]; newAbsA[1][2] = newAbsB[1][2]; newAbsB[1][2] = t; }
+
           try {
             if (canSetRelativeTransform(a)) (a as any).relativeTransform = toParentSpace(newAbsA, a.parent as any);
             if (canSetRelativeTransform(b)) (b as any).relativeTransform = toParentSpace(newAbsB, b.parent as any);
           } catch { issues++; }
         }
+        // Note: do not touch .rotation here; relativeTransform sets the orientation.
       }
     } else if (doPanel) {
       // Only panel swap: reapply original transforms
@@ -545,6 +540,7 @@ figma.on("run", async ({ command, parameters }) => {
 // ---- UI bridge
 type UiOptions = {
   swapInLayers: boolean;
+  layers: boolean;
   position: { x:boolean; y:boolean; rotation:boolean; constraints:boolean };
   appearance: { opacity:boolean; blendMode:boolean; cornerRadius:boolean };
   props: { fill:boolean; stroke:boolean; effect:boolean; layoutGrid:boolean; export:boolean; variableMode:boolean };
@@ -558,22 +554,33 @@ type UiMessage =
 
 function postSelectionState() {
   if (!figma.ui) return;
-  const pair = figma.currentPage.selection.filter((n): n is SceneNode => true).slice(0,2);
-  const has = (f:(n:SceneNode)=>boolean)=>pair.some(f);
+  const pair = figma.currentPage.selection.filter((n): n is SceneNode => true).slice(0, 2);
+  const all = (f: (n: SceneNode) => boolean) => pair.length === 2 && pair.every(f);
+
   const state = {
     twoSelected: pair.length === 2,
-    canPosition: pair.length === 2 && pair.every(canSetRelativeTransform),
-    canConstraints: has(n => "constraints" in n),
-    canCorner: has(n => "cornerRadius" in n),
-    canFill: has(n => "fills" in n),
-    canStroke: has(n => "strokes" in n),
-    canEffect: has(n => "effects" in n),
-    canGrid: has(n => "layoutGrids" in n),
-    canExport: has(n => "exportSettings" in n),
-    canVariable: has(n => "setExplicitVariableModeForCollection" in (n as any)),
+
+    // Positioning requires both editable transforms
+    canPosition: all(canSetRelativeTransform),
+
+    // Properties: enabled only if BOTH nodes support it
+    canConstraints: all(n => "constraints" in n),
+    canCorner:     all(n => "cornerRadius" in n || "topLeftRadius" in (n as any)),
+    canFill:       all(n => "fills" in n),
+    canStroke:     all(n => "strokes" in n),
+    canEffect:     all(n => "effects" in n),
+    canGrid:       all(n => "layoutGrids" in n),
+    canExport:     all(n => "exportSettings" in n),
+    canVariable:   all(n => "setExplicitVariableModeForCollection" in (n as any)),
+
+    // Newly gated
+    canLayerIndex: pair.length === 2 && !pair.some(inInstanceChain),
+    canOpacity:    all(n => "opacity" in n),
+    canBlend:      all(n => "blendMode" in n),
   };
-  figma.ui.postMessage({ type:"SELECTION_STATE", payload: state });  
-}
+
+  figma.ui.postMessage({ type: "SELECTION_STATE", payload: state });
+}  
 
 function bindUiHandlers() {
   figma.on("selectionchange", postSelectionState);
@@ -584,29 +591,68 @@ function bindUiHandlers() {
       const opts = msg.payload.options;
       if (!opts) { figma.closePlugin(); return; }
 
-      if (opts.swapInLayers) doSwitchLayers("panel");
+      let ok = 0, fail = 0, skip = 0;
 
-      if (opts.position.x || opts.position.y || opts.position.rotation || opts.position.constraints) {
-        doSwitchLayers("canvas", opts.position);
+      // Panel / Canvas intents
+      const wantPanel = !!opts.layers;
+      const wantPos =
+        !!opts.position &&
+        (opts.position.x || opts.position.y || opts.position.rotation || opts.position.constraints);
+
+      // Helpers
+      const countTrue = (arr: boolean[]) => arr.reduce((n, v) => n + (v ? 1 : 0), 0);
+      const tally = (r: "invalid" | "blocked" | number | void, attempts: number) => {
+        if (attempts <= 0) return;
+        if (r === "invalid" || r === "blocked") { fail += attempts; return; }
+        if (typeof r === "number" && r > 0) {
+          // r = number of failed transform operations returned by doSwitchLayers
+          const f = Math.min(r, attempts);
+          fail += f;
+          ok += Math.max(0, attempts - f);
+        } else {
+          ok += attempts;
+        }
+      };
+
+      // Execute transform swaps first
+      if (wantPanel && wantPos) {
+        const attempts = 1 + countTrue([opts.position.x, opts.position.y, opts.position.rotation, opts.position.constraints]); // 1 = Layers index
+        const r = doSwitchLayers("default", opts.position); // panel + granular canvas
+        tally(r, attempts);
+      } else if (wantPanel) {
+        const attempts = 1; // Layers index only
+        const r = doSwitchLayers("panel"); // parent/index only; restores original transforms
+        tally(r, attempts);
+      } else if (wantPos) {
+        const attempts = countTrue([opts.position.x, opts.position.y, opts.position.rotation, opts.position.constraints]);
+        const r = doSwitchLayers("canvas", opts.position); // granular X/Y/rotation/constraints only
+        tally(r, attempts);
       }
 
+      // Properties
       const props: PropKey[] = [];
-      if (opts.appearance.opacity) props.push("opacity");
-      if (opts.appearance.blendMode) props.push("blend mode");
-      if (opts.appearance.cornerRadius) props.push("corner radius");
-      if (opts.props.fill) props.push("fill");
-      if (opts.props.stroke) props.push("stroke");
-      if (opts.props.effect) props.push("effect");
-      if (opts.props.layoutGrid) props.push("layout grid");
-      if (opts.props.export) props.push("export");
-      if (opts.props.variableMode) props.push("variable mode");
+      if (opts.appearance?.opacity) props.push("opacity");
+      if (opts.appearance?.blendMode) props.push("blend mode");
+      if (opts.appearance?.cornerRadius) props.push("corner radius");
+      if (opts.props?.fill) props.push("fill");
+      if (opts.props?.stroke) props.push("stroke");
+      if (opts.props?.effect) props.push("effect");
+      if (opts.props?.layoutGrid) props.push("layout grid");
+      if (opts.props?.export) props.push("export");
+      if (opts.props?.variableMode) props.push("variable mode");
 
-      for (const p of props) await doSwitchProperties(p);
+      for (const p of props) {
+        const r = await doSwitchProperties(p);
+        if (r && r !== "invalid") { ok += r.okCount; fail += r.failCount; skip += r.skipCount; }
+      }
 
-      // Close UI after run
-      figma.closePlugin("Swap complete.");
+      // Mirror Switch Properties messaging, but keep UI open on failure
+      if (fail === 0 && ok === 0 && !wantPos && !wantPanel) { figma.notify("No eligible properties to switch."); return; }
+      if (fail === 0) { figma.closePlugin(`Switched ${ok}. ${skip} skipped.`); return; }
+      figma.notify(`Switched ${ok}. ${fail} failed. ${skip} skipped.`);
       return;
     }
+
 
     if (msg.type === "CLOSE") figma.closePlugin();
   };

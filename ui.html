@@ -287,7 +287,7 @@
         }
 
         .switch.disabled .switch-knob {
-            background: var(--figma-color-icon-onbrand);
+            background: var(--figma-color-icon-ondisabled);
         }
 
         .switch.disabled:focus-visible {
@@ -302,6 +302,10 @@
             color: var(--figma-color-text);
             white-space: nowrap;
             user-select: none;
+        }
+        
+        .switch-label.disabled {
+            color: var(--figma-color-text-disabled);
         }
 
         .button-group {
@@ -766,14 +770,48 @@
 
         function syncAllCheckboxes() {
             $$("input[type='checkbox'][data-key]").forEach(syncCheckboxVisual);
-            // Switch knob mirrors hidden input
+
+            // Mirror master visual ONLY from its hidden input
             const switchInput = $("[data-key='swapInLayers']");
             const switchEl = $("#swapInLayersToggle");
             if (switchEl && switchInput) {
-            switchEl.classList.toggle("active", !!switchInput.checked);
-            switchEl.classList.toggle("disabled", !!switchInput.disabled);
+                switchEl.classList.toggle("active", !!switchInput.checked);
+                // Ensure it never looks disabled
+                switchEl.classList.remove("disabled");
+                switchEl.removeAttribute("aria-disabled");
+                // Guard against any prior code that might have disabled the input
+                if (switchInput.disabled) switchInput.disabled = false;
             }
         }
+
+        function updateMasterFromChildren() {
+            const switchInput = $("[data-key='swapInLayers']");
+            const switchEl = $("#swapInLayersToggle");
+
+            // Eligible = not disabled, and not the master
+            const children = $$("input[type='checkbox'][data-key]")
+                .filter(el => el.getAttribute("data-key") !== "swapInLayers" && !el.disabled);
+
+            const hasEligible = children.length > 0;
+            // Vacuously true when none are eligible
+            const allOn = hasEligible ? children.every(el => el.checked) : true;
+
+            // Never disable master. Never auto-ON. Only auto-OFF when invalidated AND there are eligibles.
+            if (switchInput) {
+                if (switchInput.checked && hasEligible && !allOn) {
+                switchInput.checked = false; // auto-OFF
+                }
+                switchInput.disabled = false;
+            }
+
+            if (switchEl) {
+                switchEl.classList.toggle("active", !!switchInput?.checked);
+                switchEl.classList.remove("disabled");
+                switchEl.setAttribute("aria-checked", switchInput?.checked ? "true" : "false");
+                switchEl.removeAttribute("aria-disabled");
+            }
+        }
+
 
         function setCheckedByKey(key, val) {
             const el = document.querySelector(`[data-key='${key}']`);
@@ -789,28 +827,32 @@
         // Make .checkbox focusable and operable via keyboard
         function initCheckboxA11y() {
             document.querySelectorAll(".checkbox").forEach((box) => {
-            box.setAttribute("tabindex", "0");
-            box.setAttribute("role", "checkbox");
-            box.setAttribute("aria-checked", "false");
-            box.setAttribute("aria-disabled", "false");
+                const input = box.closest("[data-row]")?.querySelector("input[type='checkbox'][data-key]");
+                const disabled = !!input?.disabled;
+                const checked = !!input?.checked;
+                box.setAttribute("tabindex", disabled ? "-1" : "0");
+                box.setAttribute("role", "checkbox");
+                box.setAttribute("aria-checked", checked ? "true" : "false");
+                box.setAttribute("aria-disabled", disabled ? "true" : "false");
             });
 
             document.addEventListener("keydown", (ev) => {
-            const target = ev.target;
-            if (!target) return;
+                const target = ev.target;
+                if (!target) return;
 
-            const box = target.closest(".checkbox");
-            if (!box) return;
-            if (ev.key !== " " && ev.key !== "Enter") return;
-            ev.preventDefault();
+                const box = target.closest(".checkbox");
+                if (!box) return;
+                if (ev.key !== " " && ev.key !== "Enter") return;
+                ev.preventDefault();
 
-            const row = box.closest("[data-row]");
-            if (!row) return;
-            const input = row.querySelector("input[type='checkbox'][data-key]");
-            if (!input || input.disabled) return;
+                const row = box.closest("[data-row]");
+                if (!row) return;
+                const input = row.querySelector("input[type='checkbox'][data-key]");
+                if (!input || input.disabled) return;
 
-            input.checked = !input.checked;
-            syncCheckboxVisual(input);
+                input.checked = !input.checked;
+                syncCheckboxVisual(input);
+                updateMasterFromChildren();
             });
         }
 
@@ -820,8 +862,9 @@
             _origSync(el);
             const wrap = el.closest(".checkbox");
             if (wrap) {
-            wrap.setAttribute("aria-checked", el.checked ? "true" : "false");
-            wrap.setAttribute("aria-disabled", el.disabled ? "true" : "false");
+                wrap.setAttribute("aria-checked", el.checked ? "true" : "false");
+                wrap.setAttribute("aria-disabled", el.disabled ? "true" : "false");
+                wrap.setAttribute("tabindex", el.disabled ? "-1" : "0");
             }
         };
 
@@ -843,6 +886,7 @@
 
             input.checked = !input.checked;
             syncCheckboxVisual(input); // this already updates ARIA too
+            updateMasterFromChildren();
         });
 
 
@@ -852,9 +896,27 @@
 
         function toggleSwitch() {
             if (!switchInput || switchInput.disabled) return;
-            switchInput.checked = !switchInput.checked;
+            const next = !switchInput.checked;
+            switchInput.checked = next;
+
+            if (switchEl) {
+                switchEl.classList.toggle("active", next);
+                switchEl.setAttribute("aria-checked", next ? "true" : "false");
+            }
+
+            // Toggle every property checkbox, even if disabled
+            $$("input[type='checkbox'][data-key]").forEach((el) => {
+                const key = el.getAttribute("data-key");
+                if (!key || key === "swapInLayers") return;
+                el.checked = next;                // programmatic check allowed on disabled
+                syncCheckboxVisual(el);           // keep ARIA and tabindex in sync
+            });
+
             syncAllCheckboxes();
+            updateMasterFromChildren();         // keep master’s visual state correct
         }
+
+
 
         if (switchEl) {
             switchEl.addEventListener("click", toggleSwitch);
@@ -875,36 +937,46 @@
             if (msg.type === "SELECTION_STATE") {
             const s = msg.payload || {};
             const caps = {
-            "pos-x": s.canPosition,
-            "pos-y": s.canPosition,
-            "pos-rotation": s.canPosition,
-            "pos-constraints": s.canConstraints,
-            "cornerRadius": s.canCorner,
-            "fill": s.canFill,
-            "stroke": s.canStroke,
-            "effect": s.canEffect,
-            "layoutGrid": s.canGrid,
-            "export": s.canExport,
-            "variableMode": s.canVariable
+                "pos-x": s.canPosition,
+                "pos-y": s.canPosition,
+                "pos-rotation": s.canPosition,
+                "pos-constraints": s.canConstraints,
+                "layers": s.canLayerIndex,
+                "opacity": s.canOpacity,
+                "blendMode": s.canBlend,
+                "cornerRadius": s.canCorner,
+                "fill": s.canFill,
+                "stroke": s.canStroke,
+                "effect": s.canEffect,
+                "layoutGrid": s.canGrid,
+                "export": s.canExport,
+                "variableMode": s.canVariable
             };
             Object.entries(caps).forEach(([key, can]) => setDisabledByKey(key, !can));
             syncAllCheckboxes();
+            updateMasterFromChildren();
             }
         };
 
         // --- run / cancel -----------------------------------------------------------
         const runBtn = $("#runSwap");
         if (runBtn) runBtn.addEventListener("click", () => {
-            const read = (k) => !!document.querySelector(`[data-key='${k}']`)?.checked;
+            function read(key) {
+                const el = document.querySelector(`input[type="checkbox"][data-key="${key}"]`);
+                if (!el) return false;
+                // Disabled checkboxes are considered ineligible
+                return !el.disabled && !!el.checked;
+            }
+
 
             const options = {
             swapInLayers: read("swapInLayers"),
+            layers: read("layers"),
             position: {
                 x: read("pos-x"),
                 y: read("pos-y"),
                 rotation: read("pos-rotation"),
-                constraints: read("pos-constraints"),
-                ignoreLayout: read("pos-ignoreLayout")
+                constraints: read("pos-constraints")
             },
             appearance: {
                 opacity: read("opacity"),
@@ -930,6 +1002,7 @@
 
         // Initial visual sync in case defaults are pre-checked by HTML
         syncAllCheckboxes();
+        updateMasterFromChildren();
         </script>
 
 </body>
