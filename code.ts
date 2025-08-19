@@ -301,72 +301,112 @@ const swap: Record<PropKey, Swapper> = {
       return 1 as const;
     })()) || undefined,
 
-  stroke: async (a, b) => (
-    "strokes" in a && "strokes" in b && (async () => {
-      const A = a as any, B = b as any;
-
-      const samePaints = deepEqual(A.strokes ?? [], B.strokes ?? []);
-      const sameBasic =
-        A.strokeWeight === B.strokeWeight &&
-        A.strokeAlign === B.strokeAlign &&
-        deepEqual(A.dashPattern ?? [], B.dashPattern ?? []) &&
-        A.strokeCap === B.strokeCap &&
-        A.strokeJoin === B.strokeJoin &&
-        A.strokeMiterLimit === B.strokeMiterLimit;
-
-      const hasSidesA = "strokeTopWeight" in A, hasSidesB = "strokeTopWeight" in B;
-      const sameSides = hasSidesA && hasSidesB &&
-        A.strokeTopWeight === B.strokeTopWeight &&
-        A.strokeRightWeight === B.strokeRightWeight &&
-        A.strokeBottomWeight === B.strokeBottomWeight &&
-        A.strokeLeftWeight === B.strokeLeftWeight;
-
-      if (samePaints && sameBasic && (!hasSidesA || !hasSidesB || sameSides)) return undefined;
-
-      // swap paints first to satisfy eligibility for style/align settings
-      const as = A.strokes, bs = B.strokes;
-      A.strokes = cloneObjs(bs); B.strokes = cloneObjs(as);
-
-      // swap style id if present
-      try { 
-        if ("strokeStyleId" in A && "strokeStyleId" in B) 
-          [A.strokeStyleId, B.strokeStyleId] = [B.strokeStyleId, A.strokeStyleId]; 
-      } catch (e) {
-        // Style ID swap failed, continue with other properties
-      }
-
-      // then swap basic stroke props
-      try {
-        if ("strokeWeight" in A && "strokeWeight" in B) {
-          if (typeof A.strokeWeight === "number" && typeof B.strokeWeight === "number") {
-            [A.strokeWeight, B.strokeWeight] = [B.strokeWeight, A.strokeWeight];
-          }
+    stroke: async (a, b) => (
+      "strokes" in a && "strokes" in b && (async () => {
+        const A = a as any, B = b as any;
+    
+        const strokesA = A.strokes ?? [];
+        const strokesB = B.strokes ?? [];
+    
+        // Early exit: if both have no visible strokes, nothing to swap
+        if (strokesA.length === 0 && strokesB.length === 0) {
+          return undefined;
         }
-      } catch (e) {
-        // strokeWeight swap failed, continue
-      }
-      
-      try { if ("strokeAlign"  in A && "strokeAlign"  in B) [A.strokeAlign,  B.strokeAlign ] = [B.strokeAlign,  A.strokeAlign ]; } catch (e) {}
-      try { if ("dashPattern"  in A && "dashPattern"  in B) [A.dashPattern,  B.dashPattern ] = [B.dashPattern,  A.dashPattern ]; } catch (e) {}
-      try { if ("strokeCap"    in A && "strokeCap"    in B) [A.strokeCap,    B.strokeCap   ] = [B.strokeCap,    A.strokeCap   ]; } catch (e) {}
-      try { if ("strokeJoin"   in A && "strokeJoin"   in B) [A.strokeJoin,   B.strokeJoin  ] = [B.strokeJoin,   A.strokeJoin  ]; } catch (e) {}
-      try { if ("strokeMiterLimit" in A && "strokeMiterLimit" in B) [A.strokeMiterLimit, B.strokeMiterLimit] = [B.strokeMiterLimit, A.strokeMiterLimit]; } catch (e) {}
-
-      // finally per-side weights if both support them
-      if (hasSidesA && hasSidesB) {
-        try {
-          [A.strokeTopWeight,    B.strokeTopWeight   ] = [B.strokeTopWeight,    A.strokeTopWeight   ];
-          [A.strokeRightWeight,  B.strokeRightWeight ] = [B.strokeRightWeight,  A.strokeRightWeight ];
-          [A.strokeBottomWeight, B.strokeBottomWeight] = [B.strokeBottomWeight, A.strokeBottomWeight];
-          [A.strokeLeftWeight,   B.strokeLeftWeight  ] = [B.strokeLeftWeight,   A.strokeLeftWeight  ];
-        } catch (e) {
-          // Per-side weight swap failed
+    
+        // Capture all stroke properties BEFORE modifying anything
+        const propsA = {
+          weight: A.strokeWeight,
+          align: A.strokeAlign,
+          dash: A.dashPattern ?? [],
+          cap: A.strokeCap,
+          join: A.strokeJoin,
+          miter: A.strokeMiterLimit,
+          styleId: "strokeStyleId" in A ? A.strokeStyleId : undefined,
+          topWeight: "strokeTopWeight" in A ? A.strokeTopWeight : undefined,
+          rightWeight: "strokeRightWeight" in A ? A.strokeRightWeight : undefined,
+          bottomWeight: "strokeBottomWeight" in A ? A.strokeBottomWeight : undefined,
+          leftWeight: "strokeLeftWeight" in A ? A.strokeLeftWeight : undefined,
+        };
+    
+        const propsB = {
+          weight: B.strokeWeight,
+          align: B.strokeAlign,
+          dash: B.dashPattern ?? [],
+          cap: B.strokeCap,
+          join: B.strokeJoin,
+          miter: B.strokeMiterLimit,
+          styleId: "strokeStyleId" in B ? B.strokeStyleId : undefined,
+          topWeight: "strokeTopWeight" in B ? B.strokeTopWeight : undefined,
+          rightWeight: "strokeRightWeight" in B ? B.strokeRightWeight : undefined,
+          bottomWeight: "strokeBottomWeight" in B ? B.strokeBottomWeight : undefined,
+          leftWeight: "strokeLeftWeight" in B ? B.strokeLeftWeight : undefined,
+        };
+    
+        // Check if everything is the same (skip if identical)
+        const samePaints = deepEqual(strokesA, strokesB);
+        const sameBasic = 
+          propsA.weight === propsB.weight &&
+          propsA.align === propsB.align &&
+          deepEqual(propsA.dash, propsB.dash) &&
+          propsA.cap === propsB.cap &&
+          propsA.join === propsB.join &&
+          propsA.miter === propsB.miter;
+    
+        const hasSidesA = propsA.topWeight !== undefined;
+        const hasSidesB = propsB.topWeight !== undefined;
+        const sameSides = hasSidesA && hasSidesB &&
+          propsA.topWeight === propsB.topWeight &&
+          propsA.rightWeight === propsB.rightWeight &&
+          propsA.bottomWeight === propsB.bottomWeight &&
+          propsA.leftWeight === propsB.leftWeight;
+    
+        if (samePaints && sameBasic && (!hasSidesA || !hasSidesB || sameSides)) {
+          return undefined;
         }
-      }
-
-      return 1;
-    })()
-  ) || undefined,
+    
+        // Now perform the swap in the correct order:
+        // 1. First swap the stroke arrays
+        A.strokes = cloneObjs(strokesB);
+        B.strokes = cloneObjs(strokesA);
+    
+        // 2. Then apply the swapped properties (B's props to A, A's props to B)
+        try { if (propsB.styleId !== undefined) A.strokeStyleId = propsB.styleId; } catch (e) {}
+        try { if (propsA.styleId !== undefined) B.strokeStyleId = propsA.styleId; } catch (e) {}
+    
+        try { if (typeof propsB.weight === "number") A.strokeWeight = propsB.weight; } catch (e) {}
+        try { if (typeof propsA.weight === "number") B.strokeWeight = propsA.weight; } catch (e) {}
+    
+        try { A.strokeAlign = propsB.align; } catch (e) {}
+        try { B.strokeAlign = propsA.align; } catch (e) {}
+    
+        try { A.dashPattern = propsB.dash; } catch (e) {}
+        try { B.dashPattern = propsA.dash; } catch (e) {}
+    
+        try { A.strokeCap = propsB.cap; } catch (e) {}
+        try { B.strokeCap = propsA.cap; } catch (e) {}
+    
+        try { A.strokeJoin = propsB.join; } catch (e) {}
+        try { B.strokeJoin = propsA.join; } catch (e) {}
+    
+        try { A.strokeMiterLimit = propsB.miter; } catch (e) {}
+        try { B.strokeMiterLimit = propsA.miter; } catch (e) {}
+    
+        // Finally, per-side weights if both support them
+        if (hasSidesA && hasSidesB) {
+          try { A.strokeTopWeight = propsB.topWeight; } catch (e) {}
+          try { A.strokeRightWeight = propsB.rightWeight; } catch (e) {}
+          try { A.strokeBottomWeight = propsB.bottomWeight; } catch (e) {}
+          try { A.strokeLeftWeight = propsB.leftWeight; } catch (e) {}
+    
+          try { B.strokeTopWeight = propsA.topWeight; } catch (e) {}
+          try { B.strokeRightWeight = propsA.rightWeight; } catch (e) {}
+          try { B.strokeBottomWeight = propsA.bottomWeight; } catch (e) {}
+          try { B.strokeLeftWeight = propsA.leftWeight; } catch (e) {}
+        }
+    
+        return 1;
+      })()
+    ) || undefined,
 
   effect: async (a, b) =>
     ("effects" in a && "effects" in b && (async () => {
@@ -719,7 +759,7 @@ function bindUiHandlers() {
 
       for (const p of props) {
         const r = await doSwitchProperties(p);
-        if (r && r !== "invalid") { 
+        if (r) { 
           ok += r.okCount; 
           fail += r.failCount; 
           skip += r.skipCount; 
