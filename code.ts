@@ -4,9 +4,12 @@ type T2 = Transform;
 const IDENTITY: T2 = [[1,0,0],[0,1,0]];
 const toKey = (s: string) => s.trim().toLowerCase();
 
-function requireTwo(): [SceneNode, SceneNode] | undefined {
+function requireTwo(): [SceneNode, SceneNode] | "none" | "one" | "toomany" {
   const sel = figma.currentPage.selection.filter((n): n is SceneNode => (n as any).visible !== undefined);
-  return sel.length === 2 ? [sel[0], sel[1]] : undefined;
+  if (sel.length === 0) return "none";
+  if (sel.length === 1) return "one"; 
+  if (sel.length > 2) return "toomany";
+  return [sel[0], sel[1]];
 }
 
 // 2x3 matrix helpers
@@ -76,9 +79,11 @@ function inInstanceChain(n: SceneNode): boolean {
 function doSwitchLayers(
   scope: "default"|"canvas"|"panel",
   pos?: { x?: boolean; y?: boolean; rotation?: boolean; constraints?: boolean }
-): number | "invalid" | "blocked" {
+): number | "blocked" {
   const pair = requireTwo(); 
-  if (!pair) return "invalid";
+  if (typeof pair === "string") {
+    throw new Error("Invalid selection"); // This will be caught by caller
+  }
   const [a,b] = pair;
 
   if (inInstanceChain(a) || inInstanceChain(b)) return "blocked";
@@ -464,7 +469,9 @@ function supports(k: PropKey, n: SceneNode): boolean {
 
 async function doSwitchProperties(prop: PropKey | "all") {
   const pair = requireTwo();
-  if (!pair) return "invalid" as const;
+  if (typeof pair === "string") {
+    throw new Error("Invalid selection"); // Will be caught by caller
+  }
   const [a, b] = pair;
   const keys: PropKey[] = ["opacity","blend mode","corner radius","fill","stroke","effect","layout grid","export","variable mode"];
   const list = (prop === "all") ? keys : [prop];
@@ -526,39 +533,64 @@ figma.on("run", async ({ command, parameters }) => {
     const scope: "default"|"canvas"|"panel" =
       scopeRaw.includes("canvas") ? "canvas" :
       (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel" : "default";
-
+  
+    const pair = requireTwo();
     let msg = "Switched layers.";
+    
+    if (typeof pair === "string") {
+      switch (pair) {
+        case "none": msg = "Select some layers first."; break;
+        case "one": msg = "Select one more layer (2 total needed)."; break;
+        case "toomany": msg = "Select only 2 layers (currently have more)."; break;
+      }
+      figma.closePlugin(msg); // Remove setTimeout
+      return;
+    }
+  
     try {
       const res = doSwitchLayers(scope);
-      if (res === "invalid") msg = "Select exactly two layers.";
-      else if (res === "blocked") msg = "Not supported on components or instances.";
+      if (res === "blocked") msg = "Not supported on components or instances.";
       else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s).`;
     } catch (e) { 
       msg = "Switched layers with issues."; 
     }
-    setTimeout(() => figma.closePlugin(msg), 0);
+    
+    figma.closePlugin(msg); // Remove setTimeout
     return;
   }
 
   if (command === "switch-properties") {
+    const pair = requireTwo();
+    
+    if (typeof pair === "string") {
+      let msg: string;
+      switch (pair) {
+        case "none": msg = "Select some layers first."; break;
+        case "one": msg = "Select one more layer (2 total needed)."; break;
+        case "toomany": msg = "Select only 2 layers (currently have more)."; break;
+      }
+      figma.closePlugin(msg);
+      return;
+    }
+  
     const p = toKey(String(parameters?.property ?? ""));
     const map: Record<string, PropKey | "all"> = {
       "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
       "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
       "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export","variable mode":"variable mode"
     };
-
+  
     let msg = "Switched properties.";
     try {
       const res = await doSwitchProperties(map[p] ?? "all");
-      if (res === "invalid") msg = "Select exactly two layers.";
-      else if (res.okCount === 0 && res.failCount === 0) msg = "No eligible properties to switch.";
+      if (res.okCount === 0 && res.failCount === 0) msg = "No eligible properties to switch.";
       else if (res.failCount === 0) msg = `Switched ${res.okCount}. ${res.skipCount} skipped.`;
       else msg = `Switched ${res.okCount}. ${res.failCount} failed. ${res.skipCount} skipped.`;
     } catch (e) { 
       msg = "Switched properties with issues."; 
     }
-    setTimeout(() => figma.closePlugin(msg), 0);
+    
+    figma.closePlugin(msg); // Remove setTimeout
     return;
   }
 
@@ -621,6 +653,18 @@ function bindUiHandlers() {
       if (!opts) { 
         figma.closePlugin(); 
         return; 
+      }
+    
+      const pair = requireTwo();
+      if (typeof pair === "string") {
+        let message: string;
+        switch (pair) {
+          case "none": message = "Select some layers first."; break;
+          case "one": message = "Select one more layer (2 total needed)."; break;
+          case "toomany": message = "Select only 2 layers (currently have more)."; break;
+        }
+        figma.notify(message);
+        return; // Keep UI open for corrections
       }
 
       let ok = 0, fail = 0, skip = 0;
