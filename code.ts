@@ -2,7 +2,6 @@
 
 type T2 = Transform;
 const IDENTITY: T2 = [[1,0,0],[0,1,0]];
-const toKey = (s: string) => s.trim().toLowerCase();
 
 function requireTwo(): [SceneNode, SceneNode] | "none" | "one" | "toomany" {
   const sel = figma.currentPage.selection.filter((n): n is SceneNode => (n as any).visible !== undefined);
@@ -82,7 +81,7 @@ function doSwitchLayers(
 ): number | "blocked" {
   const pair = requireTwo(); 
   if (typeof pair === "string") {
-    throw new Error("Invalid selection"); // This will be caught by caller
+    throw new Error("Invalid selection");
   }
   const [a,b] = pair;
 
@@ -525,20 +524,6 @@ async function doSwitchProperties(prop: PropKey | "all") {
       continue;
     }
 
-    if (k === "corner radius") {
-      console.log("[swap-debug] cornerRadius", (a as any).cornerRadius, (b as any).cornerRadius);
-    } else if (k === "fill") {
-      console.log("[swap-debug] fill", JSON.stringify((a as any).fills), JSON.stringify((b as any).fills));
-    } else if (k === "stroke") {
-      console.log("[swap-debug] stroke paints", JSON.stringify((a as any).strokes), JSON.stringify((b as any).strokes));
-    } else if (k === "effect") {
-      console.log("[swap-debug] effect", JSON.stringify((a as any).effects), JSON.stringify((b as any).effects));
-    } else if (k === "layout grid") {
-      console.log("[swap-debug] layoutGrids", JSON.stringify((a as any).layoutGrids), JSON.stringify((b as any).layoutGrids));
-    } else if (k === "export") {
-      console.log("[swap-debug] exportSettings", JSON.stringify((a as any).exportSettings), JSON.stringify((b as any).exportSettings));
-    }
-
     try {
       const r = await (swap[k] as any)(a, b);
       if (r) ok.push(k);
@@ -548,60 +533,41 @@ async function doSwitchProperties(prop: PropKey | "all") {
     }
   }
 
-  console.log("[swap-debug] props result", { ok, failed, ineligible });
   
   return { okCount: ok.length, failCount: failed.length, skipCount: ineligible.length, ok, failed, ineligible };
 }
 
-// ---- run + parameters
-figma.parameters.on("input", ({ query, key, result }) => {
-  const q = (query ?? "").toLowerCase();
-  if (key === "scope") {
-    const choices = ["Canvas position only","Layers panel only"];
-    result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
-  } else if (key === "property") {
-    const choices = ["Opacity","Variable mode","Blend mode","Corner radius","Fill","Stroke","Effect","Layout grid","Export"];
-    result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
-  } else {
-    result.setSuggestions([]);
-  }
-});
 
-figma.on("run", async ({ command, parameters }) => {
+figma.on("run", async ({ command }) => {
   if (command === "switch-layers") {
-    const scopeRaw = toKey(String(parameters?.scope ?? ""));
-    const scope: "default"|"canvas"|"panel" =
-      scopeRaw.includes("canvas") ? "canvas" :
-      (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel" : "default";
-  
     const pair = requireTwo();
     let msg = "Switched layers";
-    
+
     if (typeof pair === "string") {
       switch (pair) {
         case "none": msg = "Select some layers first"; break;
-        case "one": msg = "Select one more layer (2 required"; break;
+        case "one": msg = "Select one more layer (2 required)"; break;
         case "toomany": msg = "Too many layers selected (2 required)"; break;
       }
-      figma.closePlugin(msg); // Remove setTimeout
+      figma.closePlugin(msg);
       return;
     }
-  
+
     try {
-      const res = doSwitchLayers(scope);
+      const res = doSwitchLayers("default"); // no parameters → full swap: panel + canvas
       if (res === "blocked") msg = "Not supported on components or instances.";
       else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s)`;
-    } catch (e) { 
-      msg = "Switched layers with issues."; 
+    } catch {
+      msg = "Switched layers with issues.";
     }
-    
-    figma.closePlugin(msg); // Remove setTimeout
+
+    figma.closePlugin(msg);
     return;
   }
 
   if (command === "switch-properties") {
     const pair = requireTwo();
-    
+
     if (typeof pair === "string") {
       let msg: string;
       switch (pair) {
@@ -612,25 +578,24 @@ figma.on("run", async ({ command, parameters }) => {
       figma.closePlugin(msg);
       return;
     }
-  
-    const p = toKey(String(parameters?.property ?? ""));
-    const map: Record<string, PropKey | "all"> = {
-      "(all)":"all","all":"all","opacity":"opacity","blend":"blend mode","blend mode":"blend mode",
-      "corner radius":"corner radius","radius":"corner radius","fill":"fill","stroke":"stroke",
-      "effect":"effect","effects":"effect","layout grid":"layout grid","grid":"layout grid","export":"export","variable mode":"variable mode"
-    };
-  
+
     let msg = "Switched properties.";
     try {
-      const res = await doSwitchProperties(map[p] ?? "all");
-      if (res.okCount === 0 && res.failCount === 0) msg = "No eligible properties to switch";
-      else if (res.failCount === 0) msg = `Switched ${res.okCount}. ${res.skipCount} skipped.`;
-      else msg = `Switched ${res.okCount}. ${res.failCount} failed. ${res.skipCount} skipped.`;
-    } catch (e) { 
-      msg = "Switched properties with issues"; 
+      const res = await doSwitchProperties("all");
+      if (res.okCount === 0 && res.failCount === 0) {
+        msg = "No eligible properties to switch";
+      } else if (res.failCount === 0) {
+        const noun = res.okCount === 1 ? "property" : "properties";
+        msg = `Switched ${res.okCount} ${noun}`;
+      } else {
+        const noun = res.okCount === 1 ? "property" : "properties";
+        msg = `Switched ${res.okCount} ${noun}, ${res.failCount} failed`;
+      }
+    } catch {
+      msg = "Switched properties with issues";
     }
-    
-    figma.closePlugin(msg); // Remove setTimeout
+
+    figma.closePlugin(msg);
     return;
   }
 
@@ -767,15 +732,20 @@ function bindUiHandlers() {
       }
 
       // Mirror Switch Properties messaging, but keep UI open on failure
-      if (fail === 0 && ok === 0 && !wantPos && !wantPanel) { 
-        figma.notify("No eligible properties to switch."); 
-        return; 
+      if (fail === 0 && ok === 0 && !wantPos && !wantPanel) {
+        figma.notify("No eligible properties to switch");
+        return;
       }
-      if (fail === 0) { 
-        figma.closePlugin(`Switched ${ok}. ${skip} skipped.`); 
-        return; 
+
+      const noun = ok === 1 ? "property" : "properties";
+      const skipMsg = skip > 0 ? `, ${skip} skipped` : "";
+
+      if (fail === 0) {
+        figma.closePlugin(`Switched ${ok} ${noun}${skipMsg}`);
+        return;
       }
-      figma.notify(`Switched ${ok}. ${fail} failed. ${skip} skipped.`);
+
+      figma.notify(`Switched ${ok} ${noun}, ${fail} failed${skipMsg}`);
       return;
     }
 

@@ -7,32 +7,8 @@
   "editorType": ["figma"],
   "ui": "ui.html",
   "menu": [
-    {
-      "name": "Swap Layers",
-      "command": "switch-layers",
-      "parameterOnly": false,
-      "parameters": [
-        {
-          "key": "scope",
-          "name": "Controlled swap",
-          "description": "Limit swap to just the canvas OR Layers panel",
-          "optional": true
-        }
-      ]
-    },
-    {
-      "name": "Swap Properties",
-      "command": "switch-properties",
-      "parameterOnly": false,
-      "parameters": [
-        {
-          "key": "property",
-          "name": "Single swap",
-          "description": "Select only a single property",
-          "optional": true
-        }
-      ]
-    },
+    { "name": "Swap Layers", "command": "switch-layers" },
+    { "name": "Swap Properties", "command": "switch-properties" },
     { "separator": true },
     { "name": "Swap…", "command": "switch-ui" }
   ]
