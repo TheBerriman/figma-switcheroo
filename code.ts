@@ -557,10 +557,10 @@ async function doSwitchProperties(prop: PropKey | "all") {
 figma.parameters.on("input", ({ query, key, result }) => {
   const q = (query ?? "").toLowerCase();
   if (key === "scope") {
-    const choices = ["canvas position","layers panel"];
+    const choices = ["Canvas position only","Layers panel only"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else if (key === "property") {
-    const choices = ["opacity","variable mode","blend mode","corner radius","fill","stroke","effect","layout grid","export"];
+    const choices = ["Opacity","Variable mode","Blend mode","Corner radius","Fill","Stroke","Effect","Layout grid","Export"];
     result.setSuggestions(choices.filter(s => s.toLowerCase().includes(q)));
   } else {
     result.setSuggestions([]);
@@ -575,13 +575,13 @@ figma.on("run", async ({ command, parameters }) => {
       (scopeRaw.includes("layers") || scopeRaw.includes("panel")) ? "panel" : "default";
   
     const pair = requireTwo();
-    let msg = "Switched layers.";
+    let msg = "Switched layers";
     
     if (typeof pair === "string") {
       switch (pair) {
-        case "none": msg = "Select some layers first."; break;
-        case "one": msg = "Select one more layer (2 total needed)."; break;
-        case "toomany": msg = "Select only 2 layers (currently have more)."; break;
+        case "none": msg = "Select some layers first"; break;
+        case "one": msg = "Select one more layer (2 required"; break;
+        case "toomany": msg = "Too many layers selected (2 required)"; break;
       }
       figma.closePlugin(msg); // Remove setTimeout
       return;
@@ -590,7 +590,7 @@ figma.on("run", async ({ command, parameters }) => {
     try {
       const res = doSwitchLayers(scope);
       if (res === "blocked") msg = "Not supported on components or instances.";
-      else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s).`;
+      else if (typeof res === "number" && res > 0) msg = `Switched layers with ${res} issue(s)`;
     } catch (e) { 
       msg = "Switched layers with issues."; 
     }
@@ -605,9 +605,9 @@ figma.on("run", async ({ command, parameters }) => {
     if (typeof pair === "string") {
       let msg: string;
       switch (pair) {
-        case "none": msg = "Select some layers first."; break;
-        case "one": msg = "Select one more layer (2 total needed)."; break;
-        case "toomany": msg = "Select only 2 layers (currently have more)."; break;
+        case "none": msg = "Select some layers first"; break;
+        case "one": msg = "Select one more layer (2 required)"; break;
+        case "toomany": msg = "Too many layers selected (2 required)"; break;
       }
       figma.closePlugin(msg);
       return;
@@ -623,11 +623,11 @@ figma.on("run", async ({ command, parameters }) => {
     let msg = "Switched properties.";
     try {
       const res = await doSwitchProperties(map[p] ?? "all");
-      if (res.okCount === 0 && res.failCount === 0) msg = "No eligible properties to switch.";
+      if (res.okCount === 0 && res.failCount === 0) msg = "No eligible properties to switch";
       else if (res.failCount === 0) msg = `Switched ${res.okCount}. ${res.skipCount} skipped.`;
       else msg = `Switched ${res.okCount}. ${res.failCount} failed. ${res.skipCount} skipped.`;
     } catch (e) { 
-      msg = "Switched properties with issues."; 
+      msg = "Switched properties with issues"; 
     }
     
     figma.closePlugin(msg); // Remove setTimeout
@@ -663,8 +663,8 @@ function postSelectionState() {
 
   const state = {
     twoSelected: pair.length === 2,
-    canPosition: all(canSetRelativeTransform),
-    canConstraints: all(n => "constraints" in n),
+    canPosition: all(canSetRelativeTransform) && !pair.some(inInstanceChain),
+    canConstraints: all(n => "constraints" in n) && !pair.some(inInstanceChain),
     canCorner:     all(n => "cornerRadius" in n || "topLeftRadius" in (n as any)),
     canFill:       all(n => "fills" in n),
     canStroke:     all(n => "strokes" in n),
@@ -699,9 +699,9 @@ function bindUiHandlers() {
       if (typeof pair === "string") {
         let message: string;
         switch (pair) {
-          case "none": message = "Select some layers first."; break;
-          case "one": message = "Select one more layer (2 total needed)."; break;
-          case "toomany": message = "Select only 2 layers (currently have more)."; break;
+          case "none": message = "Select some layers first"; break;
+          case "one": message = "Select one more layer (2 required)"; break;
+          case "toomany": message = "Too many layers selected (2 required)"; break;
         }
         figma.notify(message);
         return; // Keep UI open for corrections

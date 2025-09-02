@@ -8,27 +8,27 @@
   "ui": "ui.html",
   "menu": [
     {
-      "name": "Switch Layers",
+      "name": "Swap Layers",
       "command": "switch-layers",
       "parameterOnly": false,
       "parameters": [
         {
           "key": "scope",
           "name": "Controlled swap",
-          "description": "Choose below if you only want to switch visually or in the layers panel",
+          "description": "Limit swap to just the canvas OR Layers panel",
           "optional": true
         }
       ]
     },
     {
-      "name": "Switch Properties",
+      "name": "Swap Properties",
       "command": "switch-properties",
       "parameterOnly": false,
       "parameters": [
         {
           "key": "property",
-          "name": "Swap individual property",
-          "description": "Select below to swap just one property",
+          "name": "Single swap",
+          "description": "Select only a single property",
           "optional": true
         }
       ]
