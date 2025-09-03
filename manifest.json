@@ -1,6 +1,6 @@
 {
   "name": "Switcheroo",
-  "id": "1535515452609381389",
+  "id": "1544575797441670217",
   "api": "1.0.0",
   "main": "code.js",
   "documentAccess": "dynamic-page",
@@ -11,5 +11,6 @@
     { "name": "Swap Properties", "command": "switch-properties" },
     { "separator": true },
     { "name": "Swap…", "command": "switch-ui" }
-  ]
+  ],
+  "networkAccess": { "allowedDomains": ["none"] }
 }
